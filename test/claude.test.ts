@@ -1,3 +1,4 @@
+import { rm } from "node:fs/promises";
 import { boardInstruction, boardTools } from "../src/shared/session-boards.js";
 import { classifyApproval } from "../src/shared/permission-policy.js";
 import { useInstalledClaudeSdk } from "./claude-sdk-fixture.js";
@@ -9,7 +10,7 @@ import {
 import test from "node:test";
 import assert from "node:assert/strict";
 import Fastify from "fastify";
-import { mkdtempSync, readFileSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { historyEvents } from "../src/web/session-events.js";
@@ -528,7 +529,7 @@ for (const mode of [
       runtime.close();
       await mock.close();
       // 原生子进程关闭后可能短暂落盘，允许清理重试而不掩盖协议断言。
-      rmSync(dir, {
+      await rm(dir, {
         recursive: true,
         force: true,
         maxRetries: 10,

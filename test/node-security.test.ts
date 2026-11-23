@@ -522,7 +522,7 @@ test(
       assert.equal(config.runtime().codex.model, "local-model");
     } finally {
       provider.close();
-      if (child && child.exitCode === null) {
+      if (child && child.exitCode === null && child.signalCode === null) {
         const exited = once(child, "exit");
         child.kill("SIGTERM");
         await exited;
@@ -592,7 +592,7 @@ test("连接器在身份握手完成前拒绝执行环境指令", { timeout: 150
     assert.equal((await response).error.data.code, "UNAUTHENTICATED");
     assert.equal(existsSync(join(dir, "unauthorized")), false);
   } finally {
-    if (child && child.exitCode === null) {
+    if (child && child.exitCode === null && child.signalCode === null) {
       child.kill("SIGTERM");
       await once(child, "exit");
     }
@@ -716,7 +716,9 @@ require('node:readline').createInterface({input:process.stdin}).on('line',line=>
         ),
       );
       const exited = once(child, "exit");
-      child.kill("SIGTERM");
+      // 使用连接器的正常停止入口，等待工作线程提交完成。
+      const { stopWorker } = await import("../src/connector/process.js");
+      await stopWorker(config);
       await exited;
       const log = readFileSync(
         join(config.dir, "connection-diagnostics.log"),
@@ -726,7 +728,7 @@ require('node:readline').createInterface({input:process.stdin}).on('line',line=>
       assert.equal(log.includes("DO_NOT_LOG_STREAM_CONTENT"), false);
       assert.equal(log.includes(control.token), false);
     } finally {
-      if (child && child.exitCode === null) {
+      if (child && child.exitCode === null && child.signalCode === null) {
         const exited = once(child, "exit");
         child.kill("SIGTERM");
         await exited;
@@ -869,7 +871,7 @@ test(
       );
     } finally {
       local?.close();
-      if (child && child.exitCode === null) {
+      if (child && child.exitCode === null && child.signalCode === null) {
         const exited = once(child, "exit");
         child.kill("SIGKILL");
         await exited;

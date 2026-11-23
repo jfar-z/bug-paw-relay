@@ -1,3 +1,4 @@
+import { rm } from "node:fs/promises";
 import { useInstalledClaudeSdk } from "./claude-sdk-fixture.js";
 import Fastify from "fastify";
 import { runtimeCatalog } from "../src/connector/runtime-catalog.js";
@@ -265,7 +266,7 @@ for (const runtime of ["codex", "claude"])
         assert.equal(inference, 0);
       } finally {
         await mock.close();
-        rmSync(dir, {
+        await rm(dir, {
           recursive: true,
           force: true,
           maxRetries: 10,

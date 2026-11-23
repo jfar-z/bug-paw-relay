@@ -387,7 +387,7 @@ test("认证 HTTP/WSS 下发到真实连接器，首条附件消息防重与离�
           ],
           roots: f.roots,
           tools: {},
-          platform: "linux/x64",
+          platform: process.platform + "/" + process.arch,
         });
       // 此桩仅核对派发协议，不冒充实际模型读取或看图。
       if (m === "execution.start") {
