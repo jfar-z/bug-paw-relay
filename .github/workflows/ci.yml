@@ -17,5 +17,7 @@ jobs:
       - run: npm run typecheck
       # 原生协议测试调用本机 CLI，通过本地模拟端点完成交互。
       - run: npm install --global @openai/codex@0.171.0 @anthropic-ai/claude-code@2.1.326
+      # 失败用例可能遗留监听器，限制测试作业的最长运行时间并保留诊断日志。
       - run: npm test
+        timeout-minutes: 6
       - run: npm run build
