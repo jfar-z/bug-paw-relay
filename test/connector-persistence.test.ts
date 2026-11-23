@@ -319,7 +319,8 @@ test("诊断异步轮转保持五份文件，写失败不向业务抛错", async
       await new Promise((r) => setTimeout(r, 10));
     assert.equal(readdirSync(dir).length, 5);
     assert.ok(statSync(file).size < 1024);
-    assert.equal(statSync(file).mode & 0o777, 0o600);
+    // Windows 通过 ACL 控制访问，POSIX 平台还应验证创建模式。
+    if (process.platform !== "win32") assert.equal(statSync(file).mode & 0o777, 0o600);
     const failed = new ConnectorDiagnostics(join(dir, "absent"), {});
     assert.doesNotThrow(() => failed.write("connection.close", {}));
     while ((failed as any).writing) await new Promise((r) => setTimeout(r, 10));

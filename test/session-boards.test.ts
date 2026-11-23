@@ -13,7 +13,6 @@ import { boardCapability } from "../src/shared/session-boards.js";
 
 test("引用范围、目录匹配、写审批、真实附件交付及本地回执重放", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "session-boards-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
   const { store, service, app, sessionBoards } = await createApp({
     dataDir: join(root, "server"),
     publicUrl: "https://app.example.test",
@@ -43,7 +42,7 @@ test("引用范围、目录匹配、写审批、真实附件交付及本地回�
   }, close() {} };
   const environment = store.put("environments", {
     approved: true,
-    platform: "linux/x64",
+    platform: process.platform + "/" + process.arch,
     name: "source",
     capabilities: [boardCapability, "board-attachments-v1"],
     roots: [{ id: "workspace", path: root }],
@@ -229,6 +228,8 @@ test("引用范围、目录匹配、写审批、真实附件交付及本地回�
   const remoteEngine = new Engine(remoteStore, () => ({ roots: [{ id: "workspace", path: remoteRoot }] }),
     () => {}, async () => { throw Error("unexpected callback"); });
   t.after(() => { remoteEngine.close(); remoteStore.close(); });
+  // 关闭数据库后释放临时目录，兼容 Windows 文件占用规则。
+  t.after(() => rm(root, { recursive: true, force: true }));
   store.put("environments", {roots: [{ id: "workspace", path: remoteRoot }]}, other.id);
   service.peers.set(other.id, {call: remoteEngine.call.bind(remoteEngine), close() {}} as any);
   const remoteDir = {...target, environmentId: other.id};

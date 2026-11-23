@@ -504,7 +504,7 @@ test("数据与应用物理隔离、指针越界拒绝及下载断电恢复保�
     mkdirSync(join(root, "runtime"));
     mkdirSync(data);
     mkdirSync(project);
-    writeFileSync(join(root, "runtime/node"), "runtime");
+    writeFileSync(join(root, "runtime", process.platform === "win32" ? "node.exe" : "node"), "runtime");
     writeFileSync(
       join(root, "app/dist/connector/release.json"),
       JSON.stringify({

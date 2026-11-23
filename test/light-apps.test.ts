@@ -13,7 +13,6 @@ import { digest } from "../src/server/security.js";
 
 test("发布、重试、独立服务、按版反馈和登录撤销共用真实文件和数据库", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "light-apps-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
   const origin = "https://main.example.test",
     domain = "apps.example.test",
     key = randomUUID();
@@ -33,6 +32,8 @@ test("发布、重试、独立服务、按版反馈和登录撤销共用真实�
   });
   t.after(() => host.close());
   t.after(() => internal.close());
+  // 关闭数据库后释放临时目录，兼容 Windows 文件占用规则。
+  t.after(() => rm(dir, { recursive: true, force: true }));
   f.light.config.hostUrl = await internal.listen({ port: 0 });
   const env = f.store.put("environments", {
     approved: true,

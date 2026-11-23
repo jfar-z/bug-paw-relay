@@ -13,6 +13,12 @@ jobs:
         with:
           node-version: "24.19.0"
           cache: npm
+      # Node 的规范路径可能展开 Windows 用户目录短名，测试统一在 runner 的临时目录创建文件。
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "TEMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
+          "TMP=$env:RUNNER_TEMP" >> $env:GITHUB_ENV
       - run: npm ci --ignore-scripts
       - run: npm run typecheck
       # 原生协议测试调用本机 CLI，通过本地模拟端点完成交互。
