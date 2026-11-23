@@ -1,0 +1,163 @@
+/* 身份行与用户气泡分层，沿用三主题颜色。 */
+.identity-avatar {
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 9px;
+  background: var(--muted);
+  border: 1px solid var(--border);
+  font-size: 12px;
+}
+.identity-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.message-identity {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 9px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.message-identity > span:last-child {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.message-identity.is-user {
+  flex-direction: row-reverse;
+  text-align: right;
+}
+.message.user-message {
+  background: transparent;
+  padding: 0;
+  margin-left: 15%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+/* 纯文本与 Markdown 用户消息共用气泡，附件、代码及链接保留原交互。 */
+.user-message > .prose,
+.user-message > .workbench-markdown {
+  background: var(--muted);
+  padding: 13px 18px;
+  border-radius: 10px;
+  max-width: 100%;
+  margin: 0;
+}
+/* 右对齐的 Markdown 消息限制在消息列内，长代码和表格仅在内部滚动。 */
+.user-message > .workbench-markdown {
+  max-width: 100%;
+}
+.profile {
+  position: relative;
+  gap: 4px;
+  padding: 0;
+}
+.profile-edit {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+  text-align: left;
+  padding: 9px;
+  border-radius: 8px;
+}
+.profile-edit > span:last-child {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.avatar-crop-stage {
+  position: relative;
+  width: 100%;
+  height: min(52vh, 360px);
+  min-height: 200px;
+  background: var(--muted);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.avatar-upload {
+  min-width: 0;
+}
+.avatar-upload input[type="file"] {
+  max-width: 100%;
+}
+@media (min-width: 760px) and (orientation: landscape) {
+  /* 收起导航时与单个主题切换按钮保持相同触控尺寸。 */
+  .rail-collapsed .rail .profile .profile-logout {
+    --icon-button-size: 44px;
+  }
+  .rail-collapsed .rail .profile {
+    height: auto;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .rail-collapsed .profile-edit {
+    padding: 7px;
+  }
+  .rail-collapsed .profile-edit > span:last-child {
+    white-space: nowrap;
+    display: none;
+  }
+}
+@media (max-width: 480px) {
+  .avatar-crop-stage {
+    height: min(38dvh, 280px);
+    min-height: 160px;
+  }
+  .message.user-message {
+    margin-left: 8%;
+  }
+}
+
+/* 吉祥物去除原图留白，前爪搭住下边缘，耳朵允许自然探出。 */
+.identity-avatar.mascot-avatar {
+  position: relative;
+  overflow: visible;
+}
+.identity-avatar.mascot-avatar img {
+  position: absolute;
+  width: 132%;
+  max-width: none;
+  height: auto;
+  bottom: -2px;
+  left: -16%;
+}
+
+/* 输入区的小头像保留选择按钮原有的触摸范围。 */
+.identity-avatar.small-avatar {
+  width: 22px;
+  height: 22px;
+  flex-basis: 22px;
+}
+
+/* 名称可换行，手机弹窗沿用统一滚动区域，失败项保留网格位置。 */
+.avatar-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 110px), 1fr));
+  gap: 8px;
+}
+.avatar-preset-grid > button {
+  height: auto;
+  min-width: 0;
+  padding: 10px 6px;
+}
+.avatar-preset-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.avatar-preset-option img {
+  width: 60px;
+  height: 60px;
+  object-fit: contain;
+}

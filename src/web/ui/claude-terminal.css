@@ -1,0 +1,60 @@
+/* 终端正文独立滚动，保证控制栏和原生按键在窄屏与键盘缩进时仍可操作。 */
+.claude-terminal {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: calc(var(--ui-space) * 2);
+  min-width: 0;
+  min-height: 0;
+  padding: var(--ui-gap);
+  overflow: auto;
+}
+
+.claude-terminal-toolbar,
+.claude-terminal-actions,
+.claude-terminal-keys {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: calc(var(--ui-space) * 2);
+}
+
+.claude-terminal-toolbar {
+  justify-content: space-between;
+}
+
+.claude-terminal-toolbar p,
+.claude-terminal-note {
+  margin: 0;
+  color: var(--secondary);
+  font-size: 0.8125rem;
+}
+
+.claude-terminal-screen {
+  flex: 1 0 10rem;
+  min-width: 0;
+  overflow: hidden;
+  padding: calc(var(--ui-space) * 2);
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius);
+  background: var(--surface);
+}
+
+.claude-terminal-screen:focus-within {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+.claude-terminal-screen .xterm {
+  height: 100%;
+}
+
+@media (max-width: 759px) {
+  .claude-terminal-keys button {
+    min-height: var(--ui-control);
+  }
+
+  .claude-terminal-screen .xterm-helper-textarea {
+    font-size: 16px;
+  }
+}

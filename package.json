@@ -1,0 +1,63 @@
+{
+  "name": "bug-paw-relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "dev": "tsx src/server/main.ts",
+    "build": "npm run check:ui && tsc -p tsconfig.server.json && vite build",
+    "typecheck": "npm run check:ui && tsc --noEmit",
+    "test": "tsx --test test/*.test.ts",
+    "start": "node dist/server/main.js",
+    "connector": "tsx src/connector/main.ts",
+    "admin": "node dist/server/admin.js",
+    "package:connector": "node scripts/package-connector.mjs",
+    "test:browser": "playwright test",
+    "check:ui": "node scripts/sync-ui.mjs --check && node scripts/check-ui.mjs",
+    "test:ui": "playwright test --config playwright.ui.config.ts",
+    "sync:ui": "node scripts/sync-ui.mjs"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "4.0.99",
+    "@fastify/cookie": "11.1.5",
+    "@fastify/rate-limit": "11.2.2",
+    "@fastify/static": "10.1.10",
+    "@fastify/websocket": "11.3.7",
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@openai/agents": "0.21.0",
+    "@openai/agents-extensions": "0.21.0",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
+    "fastify": "5.12.8",
+    "lucide-react": "1.71.0",
+    "node-pty": "1.2.0-beta.18",
+    "openai": "7.55.0",
+    "otpauth": "9.6.0",
+    "qrcode": "1.5.4",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "react-easy-crop": "6.2.5",
+    "react-markdown": "10.1.0",
+    "remark-gfm": "4.0.1",
+    "ws": "8.22.2",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.322",
+    "@babel/parser": "8.1.2",
+    "@playwright/test": "1.65.0",
+    "@types/node": "26.6.6",
+    "@types/qrcode": "1.5.6",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@types/ws": "8.18.2",
+    "@vitejs/plugin-react": "6.3.0",
+    "prettier": "3.9.10",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "vite": "8.3.7"
+  }
+}

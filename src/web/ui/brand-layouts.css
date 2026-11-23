@@ -1,0 +1,402 @@
+/* 品牌公共层：次要操作透明描边，图标操作无框，主操作保留填充。 */
+body {
+  -webkit-font-smoothing: antialiased;
+}
+.icon-button,
+.btn.icon-button,
+.select .select-trigger.icon-button,
+.composer .select-trigger,
+.themes button {
+  color: var(--secondary);
+}
+.icon-button,
+.btn.icon-button {
+  display: inline-flex;
+  width: 40px;
+  min-width: 40px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+}
+.icon-button:hover:not(:disabled),
+.select .select-trigger.icon-button:hover:not(:disabled),
+.composer .select-trigger:hover:not(:disabled) {
+  color: var(--text);
+}
+.btn.primary {
+  color: var(--primary-text);
+}
+.btn.primary:hover:not(:disabled) {
+  filter: brightness(1.07);
+}
+.select-options,
+dialog {
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+}
+.composer {
+  background: var(--surface);
+  border-radius: 16px;
+}
+.select-trigger.permission-danger,
+.select-options button.permission-danger {
+  color: var(--danger);
+}
+.composer .select-trigger.permission-danger:hover {
+  color: var(--danger);
+}
+.themes button[aria-pressed="true"] {
+  background: var(--surface);
+  color: var(--text);
+}
+.nav button.active {
+  background: var(--surface);
+  box-shadow: none;
+}
+.session-list {
+  background: var(--panel);
+}
+.chat {
+  background: var(--canvas);
+}
+.session-entry:has(> .session.active) {
+  background: var(--surface-soft);
+}
+.agent-card,
+.envcard,
+.model-row,
+.task,
+.board-card {
+  background: var(--surface);
+}
+.btn.phone-list {
+  display: none;
+}
+.session-sidebar-header {
+  display: none;
+}
+.session-scrim {
+  display: none;
+}
+/* BUG 深棕主导航使用独立前景，避免浅色正文令牌造成低对比。 */
+[data-theme="bug"] .rail {
+  color: var(--ui-rail-text);
+  --secondary: var(--ui-rail-muted);
+  --hover: var(--ui-rail-hover);
+}
+[data-theme="bug"] .rail .nav button.active {
+  color: var(--ui-rail-text);
+  background: var(--ui-rail-hover);
+}
+[data-theme="bug"] .rail .themes button[aria-pressed="true"] {
+  color: var(--ui-rail-text);
+  background: var(--ui-rail-hover);
+}
+/* 导航底部图标共用悬停反馈，BUG 皮肤继承导航文字色以保持对比度。 */
+.rail .themes button:hover:not(:disabled),
+.rail .theme-cycle:hover:not(:disabled),
+.rail .profile-logout:hover:not(:disabled) {
+  background: var(--hover);
+  color: inherit;
+}
+/* 对话保持在原位；窄屏侧栏从左滑出，右侧始终保留可点击遮罩。 */
+@media (max-width: 759px) {
+  .btn.phone-list {
+    display: inline-flex;
+  }
+  .empty-description {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+  }
+  .icon-button,
+  .btn.icon-button {
+    width: 44px;
+    min-width: 44px;
+  }
+  .split > .session-list,
+  .split.show-list > .session-list {
+    display: flex;
+    flex-direction: column;
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: min(86vw, 310px);
+    height: 100dvh;
+    padding: max(12px, env(safe-area-inset-top)) 12px
+      max(12px, env(safe-area-inset-bottom));
+    z-index: 51;
+    /* 移动抽屉只沿纵轴滚动，保留双指缩放。 */
+    overflow-x: hidden;
+    overflow-y: auto;
+    touch-action: pan-y pinch-zoom;
+    overscroll-behavior: contain;
+    border-right: 1px solid var(--border);
+    box-shadow: var(--shadow-float);
+    transform: translateX(-102%);
+    visibility: hidden;
+    transition:
+      transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      visibility 200ms;
+  }
+  .split.show-list > .session-list {
+    transform: translateX(0);
+    visibility: visible;
+  }
+  .session-list > * {
+    flex-shrink: 0;
+  }
+  .session-sidebar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .session-scrim,
+  .session-scrim:hover {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: rgb(8 12 9 / 48%);
+    backdrop-filter: blur(2px);
+    border: 0;
+    border-radius: 0;
+    transform: none;
+  }
+  .conversations-layout .chat-heading > div:first-child {
+    position: relative;
+    padding-left: 48px;
+  }
+  .conversations-layout .chat-heading .phone-list {
+    position: absolute;
+    left: 0;
+    top: 0;
+  }
+  .conversations-layout .chat-heading h2 {
+    overflow-wrap: anywhere;
+  }
+  .conversations-layout .chat {
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+  /* 固定抽屉不能受页面入场 transform 改写定位包含块。 */
+  .content:has(.split) {
+    animation: none;
+  }
+  .content > .split {
+    animation: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .split > .session-list {
+    transition: none;
+  }
+}
+
+/* 标题按剩余宽度省略，保留按钮空间，避免长标题撑开顶部或换行。 */
+.conversations-layout .chat-heading > div:first-child {
+  flex: 1;
+  min-width: 0;
+}
+.conversations-layout .chat-heading h2,
+.workbench-layout .chat-heading h2 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conversations-layout .chat-heading > .session-controls {
+  flex: none;
+}
+.empty-chat-heading {
+  display: none;
+}
+@media (max-width: 759px) {
+  .empty-chat-heading {
+    display: flex;
+    flex: none;
+    min-height: 64px;
+  }
+  .empty-chat-heading > div:first-child {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+}
+
+/* 横屏导航参与正常布局，收起释放正文宽度，不触发抽屉焦点约束。 */
+.rail-toggle,
+.theme-cycle {
+  display: none;
+}
+@media (orientation: landscape) {
+  .shell {
+    display: grid;
+    grid-template-columns: 204px minmax(0, 1fr);
+    transition: grid-template-columns 220ms ease;
+  }
+  .shell .rail {
+    display: flex;
+    position: relative;
+    inset: auto;
+    width: auto;
+    padding: 12px 14px;
+    transform: none;
+    visibility: visible;
+    overflow-y: auto;
+    transition: padding 220ms ease;
+    overflow-x: hidden;
+  }
+  .shell .mobile-menu,
+  .rail .rail-home {
+    display: none;
+  }
+  .rail .brand {
+    flex: none;
+    padding-bottom: 12px;
+  }
+  /* 头像作为唯一横屏开关；短屏滚动时保留入口，品牌文字随宽度淡出。 */
+  .rail .rail-toggle {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--rail);
+    display: flex;
+    text-align: left;
+    width: 100%;
+    min-height: 44px;
+    margin-bottom: 12px;
+    padding: 0;
+    border-radius: var(--radius);
+    gap: 8px;
+    transition: gap 220ms ease;
+  }
+  .rail-toggle img {
+    flex: none;
+  }
+  .rail-toggle > span,
+  .rail .nav button > span {
+    overflow: hidden;
+    max-width: 160px;
+    opacity: 1;
+    white-space: nowrap;
+    transition:
+      opacity 180ms ease,
+      max-width 220ms ease;
+  }
+  .rail .nav,
+  .rail-bottom {
+    flex-shrink: 0;
+  }
+  .rail .nav button {
+    min-height: 44px;
+    overflow: hidden;
+    transition:
+      padding 220ms ease,
+      gap 220ms ease,
+      background-color 160ms ease;
+  }
+  .shell.rail-collapsed {
+    grid-template-columns: 60px minmax(0, 1fr);
+  }
+  .rail-collapsed .rail {
+    padding-inline: 8px;
+  }
+  .rail-collapsed .rail .brand {
+    padding-inline: 0;
+    justify-content: flex-start;
+    padding-left: 3px;
+    gap: 0;
+  }
+  .rail-collapsed .rail .nav button {
+    padding-inline: 12.5px;
+    gap: 0;
+  }
+  .rail-collapsed .rail .nav button > span,
+  .rail-collapsed .rail .brand > span {
+    max-width: 0;
+    opacity: 0;
+  }
+  .rail-collapsed .rail .profile > span,
+  .rail-collapsed .rail .themes {
+    display: none;
+  }
+  .rail-collapsed .rail .theme-cycle,
+  .rail-collapsed .rail .profile {
+    display: flex;
+    width: 44px;
+    height: 44px;
+    min-height: 44px;
+    padding: 0;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: var(--radius);
+  }
+  .rail-collapsed .rail .nav button.active::after {
+    display: none;
+  }
+}
+
+/* 遵循系统减少动态效果设置，避免强制播放布局动画。 */
+@media (orientation: landscape) and (prefers-reduced-motion: reduce) {
+  .shell,
+  .shell .rail,
+  .rail .rail-toggle,
+  .rail-toggle > span,
+  .rail .nav button,
+  .rail .nav button > span {
+    transition: none;
+  }
+}
+
+/* 一级导航沿用左侧布局，语言入口不改变导航与正文的排列。 */
+.shell > .main {
+  min-width: 0;
+}
+.language-control {
+  min-width: 0;
+  margin-bottom: 10px;
+}
+.language-control .select,
+.language-control .select-trigger {
+  width: 100%;
+}
+.language-control .select-trigger {
+  justify-content: flex-start;
+  text-align: left;
+  gap: 8px;
+}
+.language-label {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.language-warning {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.auth-language {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 5;
+  max-width: min(280px, calc(100vw - 32px));
+}
+.login-form {
+  padding-top: 96px;
+}
+@media (orientation: landscape) {
+  .rail-collapsed .language-label {
+    display: none;
+  }
+  .rail-collapsed .language-warning {
+    position: fixed;
+    bottom: 10px;
+    left: 64px;
+    max-width: 240px;
+    background: var(--panel);
+    padding: 8px;
+    border: 1px solid var(--border);
+    z-index: 50;
+  }
+}

@@ -1,0 +1,111 @@
+/* 直接布局与折叠菜单共用节点，保持草稿、选择及加载状态。 */
+/* 覆盖通用行的首项拉伸规则，让权限按钮紧邻配置区。 */
+.session-composer-toolbar > .row > .session-configuration {
+  flex: none;
+  min-width: 0;
+}
+.session-configuration-panel {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.session-configuration-panel[hidden] {
+  display: none;
+}
+.composer.unified-composer
+  .session-configuration:not(.collapsed)
+  .runtime-toolbar
+  .field:first-child {
+  width: 220px;
+}
+/* 窄布局用同一个网格承载第二行与主行，不脱离文档流或重挂载配置。 */
+.composer.unified-composer .session-composer-toolbar:has(.collapsed) {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  gap: 4px;
+}
+.composer.unified-composer
+  .session-composer-toolbar:has(.collapsed)
+  > .row:first-child,
+.session-configuration.collapsed {
+  display: contents;
+}
+.session-configuration.collapsed > .icon-button {
+  grid-column: 1;
+}
+.session-composer-toolbar:has(.collapsed) .attachment-picker {
+  grid-column: 2;
+}
+.session-composer-toolbar:has(.collapsed) > .row:first-child > .select {
+  grid-column: 3;
+  justify-self: start;
+}
+.session-composer-toolbar:has(.collapsed) > .row:last-child {
+  grid-column: 4;
+}
+.session-configuration.collapsed .session-configuration-panel {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  min-width: 0;
+}
+.session-composer-toolbar:has(.collapsed) > .row:last-child,
+.session-composer-toolbar:has(.collapsed) > .row:first-child > .select,
+.session-composer-toolbar:has(.collapsed) .attachment-picker,
+.session-configuration.collapsed > .icon-button {
+  grid-row: 1;
+}
+.session-composer-toolbar:has(
+    .collapsed .session-configuration-panel:not([hidden])
+  )
+  > .row:last-child,
+.session-composer-toolbar:has(
+    .collapsed .session-configuration-panel:not([hidden])
+  )
+  > .row:first-child
+  > .select,
+.session-composer-toolbar:has(
+    .collapsed .session-configuration-panel:not([hidden])
+  )
+  .attachment-picker,
+.session-configuration.collapsed:has(.session-configuration-panel:not([hidden]))
+  > .icon-button {
+  grid-row: 2;
+}
+/* 宽屏保留附件优先的原顺序；窄屏展开入口按 DOM 顺序位于最左侧。 */
+.session-configuration:not(.collapsed) {
+  order: 1;
+}
+.session-composer-toolbar > .row:first-child > .select {
+  order: 2;
+}
+.session-configuration.collapsed .runtime-toolbar-warning {
+  position: static;
+  display: block;
+  padding: 8px 0 0;
+  max-width: none;
+}
+.session-composer-toolbar .attachment-picker {
+  display: flex;
+  flex: none;
+  margin: 0;
+}
+/* 首个附件入口不继承通用 row 首项占满剩余宽度的规则。 */
+.session-composer-toolbar > .row > .attachment-picker {
+  flex: none;
+}
+/* SVG 入口为键盘焦点提供与悬停 title 一致的文字提示。 */
+.session-composer-toolbar .attachment-add,
+.session-configuration > .icon-button {
+  position: relative;
+}
+.session-composer-toolbar .attachment-add:focus-visible::after,
+.session-configuration > .icon-button:focus-visible::after {
+  content: attr(aria-label);
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  white-space: nowrap;
+  pointer-events: none;
+  color: var(--text);
+  z-index: 51;
+}

@@ -1,0 +1,840 @@
+/* 已确认模块布局迁移到正式应用，颜色与尺寸继续引用公共主题。 */
+/* 复用框架令牌，智能体模块保持独立作用域。 */
+.agents-layout {
+  display: grid;
+  grid-template-columns: 258px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+.agents-list {
+  position: sticky;
+  top: 20px;
+}
+.agent-scopes {
+  display: flex;
+  padding: 4px;
+  background: var(--muted);
+  border-radius: 8px;
+  gap: 3px;
+}
+.agent-scopes button {
+  flex: 1;
+  padding: 7px 4px;
+  font-size: 12px;
+  border-radius: 6px;
+  color: var(--secondary);
+}
+.agent-scopes .active {
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 1px 3px var(--ui-shadow-tone-5);
+}
+.agent-search input {
+  width: 100%;
+  margin: 16px 0;
+}
+.agent-order-row {
+  position: relative;
+  margin-bottom: 8px;
+}
+.agent-order-row:has(.agent-grip) .agent-list-item {
+  gap: 8px;
+  padding-inline-end: 44px;
+  user-select: none;
+}
+.agent-grip {
+  position: absolute;
+  inset-inline-end: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  touch-action: none;
+  cursor: grab;
+}
+.agent-grip button { touch-action: none; cursor: grab; }
+.agent-order-gap {
+  outline: 2px dashed var(--primary);
+  outline-offset: -2px;
+  border-radius: var(--radius);
+  background: var(--muted);
+}
+.agent-order-gap > * { visibility: hidden; }
+.agent-order-note { font-size: 12px; color: var(--secondary); }
+.agent-list-item {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  text-align: left;
+  width: 100%;
+  padding: 15px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  margin-bottom: 0;
+}
+.agent-list-item.active {
+  background: var(--panel);
+  border-color: var(--border);
+}
+.agent-list-item > span:last-child {
+  min-width: 0;
+  flex: 1;
+}
+.agent-list-item small {
+  overflow-wrap: anywhere;
+}
+.agent-list-item strong {
+  display: block;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.agent-list-item small {
+  display: block;
+  font-size: 11px;
+  margin-top: 3px;
+}
+.agent-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  flex: none;
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.agent-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.agent-list-note {
+  padding: 16px 12px;
+  color: var(--secondary);
+  font-size: 11px;
+  line-height: 1.9;
+}
+.agent-editor {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  min-width: 0;
+}
+.agent-editor-head {
+  padding: 22px 26px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.agent-identity {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  min-width: 0;
+}
+.agent-identity h2 {
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+.agent-section {
+  padding: 23px 26px;
+  border-bottom: 1px solid var(--border);
+}
+.agent-section h3 {
+  font-size: 13px;
+}
+.agent-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+.agent-avatar-row {
+  display: flex;
+  align-items: center;
+  gap: 25px;
+  font-size: 12px;
+  margin: 5px 0 10px;
+}
+.avatar-options {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.avatar-options .selected {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+.agent-upload {
+  font-size: 11px;
+  cursor: pointer;
+}
+.agent-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 13px;
+  gap: 12px;
+}
+#agent-prompt {
+  width: 100%;
+  min-height: 200px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 15px;
+  background: var(--canvas);
+  line-height: 1.9;
+  font-size: 13px;
+}
+#agent-prompt:disabled {
+  opacity: 0.55;
+}
+.agent-text-meta {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--secondary);
+  margin-top: 5px;
+}
+.agent-text-meta span:last-child {
+  white-space: nowrap;
+}
+.agent-mode-heading {
+  margin: 24px 0 12px;
+}
+.agent-modes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+}
+.agent-mode {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  column-gap: 7px;
+  padding: 13px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+.agent-mode.selected {
+  border-color: var(--text);
+  background: var(--canvas);
+}
+.agent-mode input {
+  margin: 4px 0 0;
+  accent-color: var(--text);
+}
+.agent-mode strong {
+  font-size: 12px;
+}
+.agent-mode small {
+  grid-column: 2;
+  font-size: 10px;
+  margin-top: 4px;
+}
+.agent-capability {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  color: var(--secondary);
+  margin-top: 16px;
+  font-size: 11px;
+  line-height: 1.9;
+}
+.agent-capability svg {
+  width: 16px;
+  margin-top: 2px;
+}
+.agent-editor-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+  padding: 18px 26px;
+}
+.agent-editor-footer small {
+  font-size: 10px;
+}
+.agent-editor-footer > div {
+  display: flex;
+  gap: 8px;
+}
+.agent-empty {
+  text-align: center;
+  padding: 35px 8px;
+  color: var(--secondary);
+  font-size: 13px;
+}
+.agent-dialog {
+  width: min(740px, calc(100% - 28px));
+  max-height: 90dvh;
+  padding: 0;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 24px 90px var(--ui-shadow-tone-2);
+}
+.agent-dialog::backdrop {
+  background: var(--ui-shadow-tone-6);
+}
+.agent-dialog-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 22px 26px;
+  border-bottom: 1px solid var(--border);
+}
+.agent-dialog-head h2 {
+  overflow-wrap: anywhere;
+}
+.agent-dialog-body {
+  padding: 24px 26px;
+}
+.agent-preview-tags {
+  display: flex;
+  gap: 8px;
+}
+.agent-preview-notice {
+  font-size: 12px;
+  color: var(--secondary);
+  margin: 16px 0 22px;
+}
+.prompt-source {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+.prompt-source > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.prompt-source b {
+  font-size: 12px;
+}
+.prompt-source p {
+  font-size: 12px;
+  color: var(--secondary);
+  margin-top: 10px;
+  overflow-wrap: anywhere;
+}
+.prompt-source pre {
+  font: inherit;
+  font-size: 13px;
+  margin: 15px 0 0;
+  line-height: 1.9;
+}
+.source-excluded {
+  border-style: dashed;
+  background: var(--canvas);
+}
+.agent-dialog-footer {
+  padding: 16px 26px;
+  border-top: 1px solid var(--border);
+  text-align: right;
+}
+@media (max-width: 1150px) {
+  .agents-layout {
+    grid-template-columns: 210px minmax(0, 1fr);
+    gap: 16px;
+  }
+  .agent-section,
+  .agent-editor-head {
+    padding: 20px;
+  }
+  .agent-editor-footer {
+    padding: 16px 20px;
+    flex-wrap: wrap;
+  }
+  .agent-modes {
+    grid-template-columns: 1fr;
+  }
+  .agent-mode {
+    grid-template-columns: 16px auto 1fr;
+    align-items: center;
+  }
+  .agent-mode small {
+    grid-column: auto;
+    margin: 0;
+    text-align: right;
+  }
+}
+@media (max-width: 759px) {
+  .agents-layout {
+    display: block;
+  }
+  .agents-list {
+    position: static;
+    margin-bottom: 20px;
+  }
+  .agent-list-note {
+    display: none;
+  }
+  #agent-results {
+    display: flex;
+    overflow: auto;
+    gap: 8px;
+    padding-bottom: 5px;
+  }
+  /* 卡片保留可读宽度，超出时仅列表横向滚动，不能被通用最小宽度重置后等分挤压。 */
+  #agent-results > .agent-order-row {
+    flex: 0 0 min(260px, 85%);
+    width: min(260px, 85%);
+    min-width: 0;
+    margin: 0;
+  }
+  .agent-scopes button {
+    min-height: 40px;
+  }
+  .agent-search input {
+    margin: 12px 0;
+  }
+  .agent-form-grid {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .agent-section,
+  .agent-editor-head {
+    padding: 18px;
+  }
+  .agent-avatar-row {
+    align-items: flex-start;
+    gap: 16px;
+  }
+  .agent-section-title {
+    align-items: flex-start;
+  }
+  .agent-section-title small {
+    font-size: 10px;
+  }
+  .agent-text-meta {
+    font-size: 10px;
+  }
+  .agent-editor-footer {
+    padding: 16px 18px;
+  }
+  .agent-editor-footer > div {
+    width: 100%;
+  }
+  .agent-editor-footer .btn {
+    flex: 1;
+  }
+  .agent-dialog-head,
+  .agent-dialog-body {
+    padding: 18px;
+  }
+  .agent-dialog {
+    max-height: 92dvh;
+  }
+  .agent-mode {
+    padding: 13px 10px;
+  }
+  .agent-dialog-head h2 {
+    font-size: 18px;
+  }
+}
+
+/* 环境模块延续公共边框、主题和圆角，状态信息保持克制。 */
+.env-summary {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 0 0 22px;
+  color: var(--secondary);
+}
+.env-summary b {
+  font-size: 22px;
+  color: var(--text);
+  margin-right: 5px;
+}
+.env-toolbar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 22px;
+}
+.env-toolbar input {
+  width: 320px;
+  max-width: 100%;
+  min-width: 0;
+}
+.env-v1-card .envtop {
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+.env-description {
+  font-size: 13px;
+  color: var(--secondary);
+  margin: 8px 0 16px;
+}
+.env-tool-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 20px;
+}
+.env-v1-card .envactions {
+  justify-content: space-between;
+}
+.env-notice {
+  font-size: 12px;
+  color: var(--secondary);
+  margin-top: 14px;
+  min-height: 38px;
+}
+.env-back {
+  font-size: 12px;
+  color: var(--secondary);
+  padding: 0 0 18px;
+}
+.env-title {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.env-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.env-banner {
+  background: var(--muted);
+  border: 1px solid var(--border);
+  padding: 18px 20px;
+  border-radius: var(--radius);
+  margin-bottom: 22px;
+}
+.env-banner p {
+  font-size: 13px;
+  color: var(--secondary);
+  margin: 6px 0 12px;
+  max-width: 850px;
+}
+.env-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+.env-detail-grid .kv b {
+  font-weight: 500;
+  text-align: right;
+}
+.env-detail-grid .kv code {
+  overflow-wrap: anywhere;
+  min-width: 0;
+  text-align: right;
+  font-size: 12px;
+}
+.env-detail-grid .kv span {
+  flex: none;
+}
+.env-next {
+  margin-top: 22px;
+}
+.env-work-stats {
+  display: flex;
+  gap: 36px;
+  margin: 24px 0 30px;
+}
+.env-work-stats strong {
+  display: block;
+  font-size: 28px;
+  font-weight: 600;
+}
+.env-work-stats small {
+  display: block;
+}
+.env-section-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+.env-root {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 0;
+  border-top: 1px solid var(--border);
+}
+.env-root code {
+  overflow-wrap: anywhere;
+  min-width: 0;
+  flex: 1;
+}
+.env-project {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 0;
+  border-top: 1px solid var(--border);
+}
+.env-project code,
+.env-project small {
+  display: block;
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+}
+.env-project > div {
+  min-width: 0;
+}
+.env-events {
+  padding-left: 20px;
+  display: grid;
+  gap: 22px;
+}
+.env-events strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+.env-events small {
+  display: block;
+  margin-top: 5px;
+}
+.env-steps {
+  display: flex;
+  gap: 20px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 18px;
+  margin-bottom: 24px;
+  font-size: 12px;
+  color: var(--secondary);
+}
+.env-steps .active {
+  color: var(--text);
+  font-weight: 700;
+}
+.env-guide {
+  padding-left: 24px;
+  display: grid;
+  gap: 18px;
+  margin: 20px 0;
+}
+.env-guide p {
+  color: var(--secondary);
+  font-size: 13px;
+  margin-top: 5px;
+}
+.env-wait {
+  text-align: center;
+  padding: 35px 16px;
+}
+.env-wait svg {
+  width: 36px;
+  height: 36px;
+  margin-bottom: 16px;
+}
+.env-v1 p {
+  text-wrap: pretty;
+}
+.env-tabs {
+  overflow-x: auto;
+}
+.env-tabs button {
+  white-space: nowrap;
+}
+@media (max-width: 1000px) {
+  .env-detail-grid {
+    grid-template-columns: 1fr;
+  }
+  .env-work-stats {
+    justify-content: space-around;
+  }
+}
+@media (max-width: 759px) {
+  .env-toolbar input {
+    width: 100%;
+  }
+  .env-toolbar select {
+    max-width: 115px;
+  }
+  .env-v1 > .pagehead {
+    flex-wrap: wrap;
+  }
+  .env-summary {
+    gap: 18px;
+  }
+  .env-section-head {
+    flex-wrap: wrap;
+  }
+  .env-root {
+    flex-wrap: wrap;
+  }
+  .env-root code {
+    font-size: 12px;
+  }
+  .env-project {
+    align-items: flex-start;
+  }
+  .env-steps {
+    gap: 12px;
+  }
+  .env-back {
+    min-height: 44px;
+  }
+  .env-banner {
+    padding: 16px;
+  }
+}
+
+/* 安装命令在窄屏折行，保持可选中。 */
+.env-install {
+  margin: 20px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  background: var(--canvas);
+}
+.env-install pre {
+  background: var(--primary);
+  color: var(--onprimary);
+  padding: 16px;
+  border-radius: 7px;
+  font-size: 12px;
+  line-height: 1.8;
+  user-select: text;
+}
+.env-install .note {
+  padding-bottom: 0;
+}
+.env-install .env-section-head {
+  align-items: center;
+}
+
+/* 运行参数沿用统一控件，小屏内保持双列并允许长模型名折行。 */
+.runtime-options {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+.runtime-options .form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.runtime-options .sub {
+  overflow-wrap: anywhere;
+}
+.runtime-options.compact {
+  margin: 8px 0;
+}
+.runtime-options.compact .field {
+  margin: 0;
+}
+.runtime-options .row {
+  flex-wrap: wrap;
+}
+.runtime-options .select-trigger span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.runtime-options.compact .field {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+}
+.runtime-options.compact .field > span {
+  flex: 0 0 auto;
+  font-size: 12px;
+}
+.runtime-options.compact .select {
+  min-width: 0;
+  flex: 1;
+}
+.runtime-option-details {
+  font-size: 12px;
+  color: var(--secondary);
+}
+.runtime-option-details > summary {
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+/* 会话输入区所有选择与操作共用一行，模型长名称收缩且不挤走图标。 */
+.session-composer-toolbar .runtime-options.compact {
+  display: block;
+  position: relative;
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: 0;
+}
+.runtime-options.compact .runtime-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+/* 模型按名称占宽，上限与统一选择器一致，窄屏仍可继续收缩。 */
+.runtime-toolbar .field:first-child {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 220px;
+}
+.runtime-toolbar .field:last-of-type {
+  flex: none;
+}
+.runtime-options.compact .runtime-toolbar .field > :is(span, label) {
+  display: none;
+}
+.composer.unified-composer .runtime-toolbar .select {
+  max-width: none;
+  width: 100%;
+}
+.session-composer-toolbar > .row:first-child > .select:first-child {
+  flex: none;
+}
+/* 能力读取失败仍可被感知，不恢复已移除的配置详情面板。 */
+.runtime-toolbar-warning {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  max-width: 280px;
+  padding: 6px 8px;
+  background: var(--panel);
+  color: var(--secondary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+/* 极窄手机缩小控件间距，不能把图标触控区域压成窄长方形。 */
+@media (max-width: 374px) {
+  .composer.unified-composer .session-composer-toolbar {
+    gap: 4px;
+  }
+}
+
+/* 流程禁用范围保留标题编辑，确认名单单独滚动以保持操作可达。 */
+.editor-fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.editor-fieldset:disabled .config-block {
+  opacity: 0.65;
+}
+.flow-deleted-stages {
+  max-height: 25vh;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}
+
+/* 长阶段名在手机布局中换行，编号前缀不裁切。 */
+.stage-label {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.config-block h3 {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}

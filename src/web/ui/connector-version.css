@@ -1,0 +1,109 @@
+/* 继承环境卡片布局，三种主题均保留可读的红色提醒。 */
+.connector-version {
+  min-width: 0;
+}
+.connector-version .kv {
+  gap: 12px;
+  align-items: start;
+}
+.connector-version .kv small {
+  min-width: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+/* 桌面端逐行比较，窄屏保留完整值并允许断行。 */
+.connector-version-comparison {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.connector-version-comparison > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 12px;
+}
+.connector-version-comparison dt {
+  flex: 0 1 120px;
+}
+.connector-version-comparison dd {
+  flex: 1 1 104px;
+  min-width: 0;
+  margin: 0;
+}
+@media (max-width: 480px) {
+  .connector-version-comparison dt {
+    flex-basis: 100%;
+  }
+  .connector-version-comparison {
+    gap: 8px;
+  }
+}
+.connector-version-warning {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0;
+}
+.connector-version-warning > p {
+  color: var(--ui-danger);
+  font-weight: 600;
+}
+.connector-version-warning > small {
+  overflow-wrap: anywhere;
+}
+.connector-version-warning > .btn {
+  justify-self: start;
+}
+[data-theme="dark"] .connector-version-warning > p {
+  color: var(--ui-danger);
+}
+[data-theme="bug"] .connector-version-warning > p {
+  color: var(--ui-danger);
+}
+/* 更新信息沿用主题文字与边框，长版本和操作编号在窄屏可换行。 */
+.connector-update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+.connector-update-actions > small {
+  flex-basis: 100%;
+}
+.connector-update-status,
+.connector-update-confirm {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.connector-update-status progress {
+  width: 100%;
+  accent-color: var(--accent);
+}
+.connector-update-confirm dl {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: 8px 16px;
+}
+.connector-update-confirm dd {
+  margin: 0;
+}
+.connector-update-confirm .connector-update-actions {
+  justify-content: flex-end;
+}
+@media (max-width: 480px) {
+  .connector-update-confirm dl {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+  .connector-update-confirm dd {
+    margin-bottom: 8px;
+  }
+}

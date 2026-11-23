@@ -1,0 +1,28 @@
+# 两个服务复用同一镜像，分别持久化主站与轻应用数据。
+x-common: &common
+  image: ${RELAY_IMAGE:-bug-paw-relay:local}
+  environment: &shared-env
+    RELAY_PUBLIC_URL: ${RELAY_PUBLIC_URL:?Set the main HTTPS URL}
+    RELAY_LIGHT_DOMAIN: ${RELAY_LIGHT_DOMAIN:?Set the Light App hostname}
+    RELAY_LIGHT_KEY: ${RELAY_LIGHT_KEY:?Generate a shared key}
+services:
+  relay:
+    <<: *common
+    environment:
+      <<: *shared-env
+      RELAY_LIGHT_INTERNAL_URL: http://light-host:3180
+    volumes:
+      - ${RELAY_DATA_ROOT:-/srv/bug-paw-relay}/relay:/data
+    ports:
+      - "127.0.0.1:${RELAY_WEB_PORT:-3180}:3180"
+  light-host:
+    <<: *common
+    command: ["node", "dist/server/light-host-main.js"]
+    environment:
+      <<: *shared-env
+      RELAY_INTERNAL_URL: http://relay:3180
+    volumes:
+      - ${RELAY_DATA_ROOT:-/srv/bug-paw-relay}/light-host:/data
+    # 仅映射轻应用公开端口，内部接口通过 Compose 网络通信。
+    ports:
+      - "127.0.0.1:${RELAY_APPS_PORT:-3181}:3181"

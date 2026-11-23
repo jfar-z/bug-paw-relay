@@ -1,0 +1,172 @@
+:root {
+  --ui-session-row: 36px;
+}
+@media (max-width: 759px) {
+  :root {
+    --ui-session-row: 44px;
+  }
+}
+/* 三套主题与 BugPaw 现行品牌语义保持一致，兼容现有模块变量。 */
+:root,
+:root[data-theme="light"] {
+  --paw: #f5b4b6;
+  color-scheme: light;
+  --eye: #587b3e;
+  --canvas: #f3f2ee;
+  --panel: #faf9f6;
+  --surface: #ffffff;
+  --surface-soft: #e9e8e3;
+  --surface-hover: #e1e2df;
+  --text-primary: #252b33;
+  --text-secondary: #626b76;
+  --text-tertiary: #64707b;
+  --border: #d6d5cf;
+  --border-strong: #c1c2bf;
+  --accent: #5f7088;
+  --accent-strong: #475970;
+  --fg: var(--accent-strong);
+  --accent-soft: rgba(95, 112, 136, 0.12);
+  --ok: var(--eye);
+  --halo: color-mix(in srgb, var(--eye) 16%, transparent);
+  --danger: #b45d5d;
+  --focus: #587b3e;
+  --primary-bg: #43536a;
+  --primary-text: #ffffff;
+  --rail: #ecebe6;
+  --backdrop: #e4e3de;
+  --shadow-soft: 0 14px 36px rgba(50, 57, 66, 0.1);
+  --shadow-float: 0 22px 58px rgba(50, 57, 66, 0.16);
+  --text: var(--text-primary);
+  --secondary: var(--text-secondary);
+  --muted: var(--surface-soft);
+  --hover: var(--surface-hover);
+  --primary: var(--primary-bg);
+  --onprimary: var(--primary-text);
+  --green: var(--ok);
+  --pink: var(--paw);
+  --radius: 10px;
+}
+:root[data-theme="dark"] {
+  --paw: #f5b4b6;
+  color-scheme: dark;
+  --eye: #a4c66d;
+  --canvas: #151517;
+  --panel: #1c1c1f;
+  --surface: #24252a;
+  --surface-soft: #2c2d32;
+  --surface-hover: #34353a;
+  --text-primary: #f4f1ec;
+  --text-secondary: #b7bac2;
+  --text-tertiary: #888d98;
+  --border: #383940;
+  --border-strong: #4a4d56;
+  --accent: #5f6d8a;
+  --accent-strong: #94a4c4;
+  --fg: var(--accent-strong);
+  --accent-soft: rgba(95, 109, 138, 0.18);
+  --ok: var(--eye);
+  --halo: color-mix(in srgb, var(--eye) 18%, transparent);
+  --danger: #d77c78;
+  --focus: #a4c66d;
+  --primary-bg: #5f6d8a;
+  --primary-text: #f7f5f1;
+  --rail: #18191b;
+  --backdrop: #0f0f11;
+  --shadow-soft: 0 18px 50px rgba(0, 0, 0, 0.28);
+  --shadow-float: 0 22px 70px rgba(0, 0, 0, 0.42);
+  --text: var(--text-primary);
+  --secondary: var(--text-secondary);
+  --muted: var(--surface-soft);
+  --hover: var(--surface-hover);
+  --primary: var(--primary-bg);
+  --onprimary: var(--primary-text);
+  --green: var(--ok);
+  --pink: var(--paw);
+  --radius: 10px;
+}
+:root[data-theme="bug"] {
+  color-scheme: light;
+  --eye: #587b3e;
+  --paw: #bd686d;
+  --canvas: #e9dfd1;
+  --panel: #f5eee4;
+  --surface: #fffaf3;
+  --surface-soft: #ded0bc;
+  --surface-hover: #d4c2aa;
+  --text-primary: #30271f;
+  --text-secondary: #655545;
+  --text-tertiary: #705e4d;
+  --border: #c9b89f;
+  --border-strong: #9f876d;
+  --accent: #6e5948;
+  --accent-strong: #49392d;
+  --fg: var(--accent-strong);
+  --accent-soft: rgba(110, 89, 72, 0.14);
+  --ok: var(--eye);
+  --halo: color-mix(in srgb, var(--eye) 16%, transparent);
+  --danger: #bd686d;
+  --focus: #587b3e;
+  --primary-bg: #34281f;
+  --primary-text: #fff8ee;
+  --rail: #34281f;
+  --backdrop: #d9cbb9;
+  --scrollbar-track: var(--surface-soft);
+  --scrollbar-thumb: #8a715b;
+  --scrollbar-thumb-hover: var(--accent-strong);
+  --shadow-soft: 0 12px 30px rgba(73, 57, 45, 0.13);
+  --shadow-float: 0 20px 52px rgba(73, 57, 45, 0.2);
+  --shadow-pixel: 2px 2px 0 #49392d;
+  --text: var(--text-primary);
+  --secondary: var(--text-secondary);
+  --muted: var(--surface-soft);
+  --hover: var(--surface-hover);
+  --primary: var(--primary-bg);
+  --onprimary: var(--primary-text);
+  --green: var(--ok);
+  --pink: var(--paw);
+  --radius: 4px;
+}
+
+/* 公共组件尺寸和状态唯一入口，业务页面不得覆盖。 */
+:root {
+  --ui-space: 4px;
+  --ui-radius: 8px;
+  --ui-panel-radius: 12px;
+  --ui-control: 40px;
+  --ui-icon: 18px;
+  --ui-motion: 160ms;
+  --ui-gap: 16px;
+  --ui-focus-width: 2px;
+  --ui-danger: #984344;
+  --ui-warning: #805c20;
+}
+:root[data-theme="dark"] {
+  --ui-danger: #eeaaa5;
+  --ui-warning: #e6c282;
+}
+:root[data-theme="bug"] {
+  --ui-radius: 4px;
+  --ui-panel-radius: 6px;
+  --ui-danger: #9a4248;
+}
+@media (max-width: 759px) {
+  :root {
+    --ui-control: 44px;
+  }
+}
+
+/* 导航对比度与透明阴影的共享语义令牌。 */
+:root {
+  --ui-rail-text: #fff8ee;
+  --ui-rail-muted: #d4c2aa;
+  --ui-rail-hover: #49392d;
+  --ui-shadow-tone-1: #0002;
+  --ui-shadow-tone-2: #0003;
+  --ui-shadow-tone-3: #0007;
+  --ui-shadow-tone-4: #0000000b;
+  --ui-shadow-tone-5: #0001;
+  --ui-shadow-tone-6: #1118;
+  --ui-shadow-tone-7: #00000008;
+  --ui-shadow-tone-8: #00000004;
+  --ui-shadow-tone-9: #0006;
+}

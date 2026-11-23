@@ -1,0 +1,140 @@
+/* 沿用三主题语义色与公共弹窗，手机端无需悬停即可看到不可预览原因。 */
+.environment-file {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.environment-file p,
+.environment-file h3 {
+  margin: 0;
+}
+.file-name {
+  overflow-wrap: anywhere;
+}
+.file-info {
+  margin: 0;
+  display: grid;
+  gap: 10px;
+  font-size: 13px;
+}
+.file-info > div {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 12px;
+}
+.file-info dt {
+  color: var(--text-secondary);
+}
+.file-info dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.file-actions {
+  flex-wrap: wrap;
+}
+.file-warning {
+  color: var(--danger);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.file-progress {
+  display: grid;
+  gap: 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.file-progress > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.file-progress progress {
+  width: 100%;
+  height: 8px;
+  accent-color: var(--accent);
+}
+.file-media {
+  display: block;
+  width: 100%;
+  max-height: 55dvh;
+  object-fit: contain;
+  border-radius: 8px;
+}
+.file-text {
+  overflow: auto;
+  max-height: 55dvh;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 0;
+  font-size: 12px;
+}
+.file-line {
+  display: flex;
+  line-height: 1.7;
+}
+.file-line > span {
+  width: 48px;
+  flex-shrink: 0;
+  padding-right: 12px;
+  text-align: right;
+  color: var(--text-secondary);
+  user-select: none;
+}
+.file-line code {
+  padding-right: 16px;
+}
+.file-line.selected {
+  background: var(--accent-soft);
+}
+.file-link {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 600px) {
+}
+
+/* 交接产物沿用公共列表和文件弹窗，长文件名在手机端自然换行。 */
+.handoff-artifacts {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.handoff-artifacts li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+.handoff-artifacts li > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  display: grid;
+  gap: 4px;
+}
+.handoff-artifacts small {
+  color: var(--secondary);
+}
+.handoff-artifacts button {
+  flex-shrink: 0;
+}
+.artifact-document {
+  width: 100%;
+  height: 55vh;
+  border: 1px solid var(--border);
+  background: white;
+}
+.artifact-markdown {
+  max-height: 55vh;
+  overflow: auto;
+  overflow-wrap: anywhere;
+}

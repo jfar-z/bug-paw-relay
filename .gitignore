@@ -1,0 +1,30 @@
+# AI 协作指令与本地上下文文档，适用于所有子目录。
+AGENTS.md
+AGENTS.local.md
+CLAUDE.md
+CLAUDE.local.md
+GEMINI.md
+CONTEXT.md
+CONTEXT-MAP.md
+
+# AI 工具的本地工作资料与指令目录。
+.agents/
+.claude/
+.codex/
+.cursor/
+.cursorrules
+.windsurfrules
+.github/copilot-instructions.md
+.github/instructions/
+
+# 仓库内临时产生的 AI 计划、会话记录和审阅资料统一存放于此。
+.vibe/
+
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+data/
+*.db*
+coverage/

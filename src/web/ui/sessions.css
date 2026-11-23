@@ -1,0 +1,315 @@
+/* 会话管理沿用公共控件、主题色与移动端触控尺寸。 */
+.session-batch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+}
+.session-batch > small {
+  width: 100%;
+  color: var(--secondary);
+}
+.session-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.session-entry > .session {
+  flex: 1;
+  min-width: 0;
+}
+.session-entry > .check {
+  flex: 0 0 auto;
+}
+.session-controls {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+@media (max-width: 600px) {
+  .session-controls {
+    justify-content: flex-start;
+  }
+}
+
+/* 两页共用的操作入口与底部选择栏，窄屏仍保留完整触控目标。 */
+.session-entry > .select {
+  flex: 0 0 auto;
+}
+.session-entry .select-trigger.icon-button {
+  width: 36px;
+}
+.session-entry > .session {
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+.session-batch-footer {
+  position: sticky;
+  bottom: 0;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+  margin-top: auto;
+}
+.project-group summary > .select {
+  margin-left: auto;
+}
+
+.session-list .session-batch .btn {
+  width: auto;
+  margin: 0;
+  flex: 1 0 auto;
+}
+.session-batch-footer {
+  z-index: 2;
+  padding: 12px 0;
+}
+.project-group summary > .select .icon-button {
+  width: 36px;
+}
+@media (max-width: 600px) {
+  .session-entry .select-trigger.icon-button,
+  .project-group summary > .select .icon-button {
+    width: 44px;
+  }
+}
+
+/* 图标菜单不继承文本选择器的最小宽度或箭头旋转。 */
+.select.icon-select {
+  min-width: 0;
+}
+.icon-select .select-trigger {
+  justify-content: center;
+}
+.select.icon-select .select-trigger svg {
+  transform: none;
+}
+
+/* 紧凑单行列表保留完整标题提示，菜单与选中背景融为一体。 */
+.session-entry {
+  gap: 4px;
+  margin-bottom: 3px;
+  border-radius: 8px;
+}
+.session-entry:has(> .session.active) {
+  background: var(--muted);
+}
+.session-entry > .session {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 7px 8px;
+  margin: 0;
+  background: transparent;
+}
+.session-entry .session strong {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 20px;
+  font-weight: 500;
+}
+.session-status {
+  display: inline-flex;
+  flex: 0 0 16px;
+  color: var(--secondary);
+}
+.session-status-running,
+.session-status-resuming,
+.session-status-dispatching {
+  color: var(--primary);
+}
+.session-status-failed,
+.session-status-interrupted {
+  color: var(--danger);
+}
+.session-entry .select-trigger.icon-button,
+.project-group summary > .select .select-trigger.icon-button {
+  margin: 0;
+  color: var(--secondary);
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+.session-entry > .session:hover,
+.session-entry .select-trigger.icon-button:hover:not(:disabled),
+.project-group
+  summary
+  > .select
+  .select-trigger.icon-button:hover:not(:disabled),
+.session-entry .select-trigger.icon-button[aria-expanded="true"],
+.project-group
+  summary
+  > .select
+  .select-trigger.icon-button[aria-expanded="true"] {
+  color: var(--text);
+}
+.session-entry > .session:focus-visible,
+.session-entry .select-trigger.icon-button:focus-visible,
+.project-group summary > .select .select-trigger.icon-button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+@media (max-width: 600px) {
+}
+@media (prefers-reduced-motion: reduce) {
+  .session-status .spin {
+    animation: none;
+  }
+}
+
+/* 首次历史读取使用轻量状态提示，沿用现有主题和旋转动效。 */
+.session-history-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px 16px;
+  color: var(--secondary);
+}
+.session-history-loading svg {
+  flex-shrink: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .session-history-loading .spin {
+    animation: none;
+  }
+}
+
+/* 项目筛选占据剩余宽度，管理入口保留独立图标触控区域。 */
+.session-project-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.session-project-filter > .select {
+  flex: 1;
+  min-width: 0;
+}
+.session-list .session-project-filter > .icon-button {
+  flex: none;
+  width: 40px;
+  margin-bottom: 0;
+}
+
+/* 提问卡片复用三主题变量与统一勾选，长题文和答案完整换行。 */
+.question-card {
+  margin: 16px 0;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+  overflow-wrap: anywhere;
+}
+.question-card header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.question-card h3 {
+  margin: 0;
+}
+.question-card fieldset {
+  margin: 20px 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.question-card legend {
+  padding: 0;
+  width: 100%;
+  margin-bottom: 12px;
+}
+.question-text,
+.question-description,
+.question-answer {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.question-text {
+  margin-top: 6px;
+  font-weight: 600;
+}
+.question-description {
+  color: var(--secondary);
+  margin-top: 4px;
+  font-size: 0.9em;
+}
+.question-card .check {
+  display: flex;
+  align-items: flex-start;
+  padding: 12px;
+  margin: 6px 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.question-card .check:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.question-card fieldset:disabled .check {
+  cursor: default;
+}
+.question-card textarea {
+  width: 100%;
+  resize: vertical;
+}
+.question-card details {
+  margin-top: 12px;
+}
+.question-card > .btn {
+  margin: 4px 8px 4px 0;
+}
+@media (max-width: 600px) {
+  .question-card {
+    padding: 14px;
+  }
+}
+
+/* 项目分组沿用会话密度，弹窗操作空间独立于长项目名。 */
+.project-group {
+  margin-top: 6px;
+}
+.project-management-row > strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.project-management-actions {
+  display: flex;
+  flex: none;
+  gap: 4px;
+}
+.project-management-footer {
+  flex-wrap: wrap;
+}
+
+/* 轻应用发布与消息同宽，长标题和元数据可以自然换行。 */
+.session-publication {
+  min-width: 0;
+  margin-block: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+  overflow-wrap: anywhere;
+}
+.session-publication time,
+.session-publication-version {
+  font-size: 13px;
+}

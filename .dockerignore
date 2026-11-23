@@ -1,0 +1,9 @@
+node_modules
+dist/*
+!dist/portable/
+.git
+.vibe
+.env*
+data
+AGENTS.md
+CLAUDE.md
