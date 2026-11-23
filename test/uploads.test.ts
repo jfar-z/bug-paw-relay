@@ -767,7 +767,7 @@ test("认证 HTTP/WSS 下发到真实连接器，首条附件消息防重与离�
 test("真实 Codex 适配器收到落盘附件链接，历史和原生请求保留文字及原名", async () => {
   const f = await fixture();
   const local = new Store(join(f.dir, "local.db"));
-  const command = join(f.dir, "native-fixture");
+  const command = join(f.dir, "native-fixture.cjs");
   const capture = join(f.dir, "capture.json");
   const { chmod } = await import("node:fs/promises");
   await writeFile(

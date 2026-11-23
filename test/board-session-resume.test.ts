@@ -15,7 +15,7 @@ import { boardSessionTitleCapability, handoffCapability } from "../src/shared/st
 /** 真实双端 SQLite 和 Codex stdio 协议进程；只替换供应商，不替换账本、调度或 Engine。 */
 function fixture() {
   const dir = mkdtempSync(join(tmpdir(), "relay-resume-"));
-  const command = join(dir, "native-fixture");
+  const command = join(dir, "native-fixture.cjs");
   writeFileSync(
     command,
     `#!/usr/bin/env node

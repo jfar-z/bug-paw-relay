@@ -294,7 +294,7 @@ test("连接器在完成前推送用户消息、回答增量和工具事件", as
   const { writeFileSync, chmodSync } = await import("node:fs");
   const dir = mkdtempSync(join(tmpdir(), "relay-event-engine-"));
   const store = new Store(join(dir, "local.db"));
-  const command = join(dir, "native-fixture");
+  const command = join(dir, "native-fixture.cjs");
   // 临时原生协议桩不使用任何真实模型或用户凭据。
   writeFileSync(
     command,

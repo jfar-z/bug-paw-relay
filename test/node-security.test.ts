@@ -617,7 +617,7 @@ test(
       assert.ok(check(), "等待条件超时");
     };
     try {
-      const command = join(f.dir, "stream-runtime");
+      const command = join(f.dir, "stream-runtime.cjs");
       const starts = join(f.dir, "starts");
       writeFileSync(
         command,

@@ -56,7 +56,7 @@ test("SEC-09 原生进程拒绝正常退出时限定时间强制终止", { timeo
   const { join } = await import("node:path");
   const { once } = await import("node:events");
   const dir = mkdtempSync(join(tmpdir(), "relay-stop-"));
-  const command = join(dir, "fake-codex");
+  const command = join(dir, "fake-codex.cjs");
   writeFileSync(command, `#!${process.execPath}\nprocess.on('SIGTERM',()=>{});process.stdout.write('ready\\n');setInterval(()=>{},1000);`, { mode: 0o700 });
   const runtime = new CodexRuntime({ event() {}, native() {}, interaction() {}, done() {}, handoff: async () => ({}) }, { command });
   const child = (runtime as any).process;
@@ -65,6 +65,7 @@ test("SEC-09 原生进程拒绝正常退出时限定时间强制终止", { timeo
     const exit = once(child, "exit");
     runtime.close();
     const [, signal] = await exit;
-    assert.equal(signal, "SIGKILL");
+    // Windows 的 SIGTERM 会直接终止子进程；POSIX 会在宽限期后发送 SIGKILL。
+    assert.equal(signal, process.platform === "win32" ? "SIGTERM" : "SIGKILL");
   } finally { child.kill("SIGKILL"); rmSync(dir, { recursive: true, force: true }); }
 });
