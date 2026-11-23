@@ -617,7 +617,8 @@ test("认证 HTTP/WSS 下发到真实连接器，首条附件消息防重与离�
         runtime,
       );
       assert.ok(prompt.includes(agentFile.files[0].path));
-      assert.ok(prompt.includes(f.cwd));
+      // 附件历史使用 JSON 表示目录，Windows 反斜杠应按 JSON 字符串校验。
+      assert.ok(prompt.includes(JSON.stringify(f.cwd)));
     }
     const session = service.createSession({
       agentId: service.save("agents", { name: "会话智能体" }).id,
