@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { createApp } from "../src/server/app.js";
 import { createLightHost } from "../src/server/light-host.js";
 import { EnvironmentFiles } from "../src/connector/files.js";
+import { AppError } from "../src/shared/contracts.js";
 import { digest } from "../src/server/security.js";
 
 test("发布、重试、独立服务、按版反馈和登录撤销共用真实文件和数据库", async (t) => {
@@ -505,6 +506,74 @@ test("发布、重试、独立服务、按版反馈和登录撤销共用真实�
     401,
   );
   assert.equal((await asset(active)).statusCode, 200);
+  await t.test("历史版本仅保存、拒收后重试与并发通知", async () => {
+    const path = "/api/light-versions/" + v.versionId + "/feedback";
+    const payload = { viewId: fresh.viewId, kind: "change", text: "请增大字号", operationId: randomUUID() };
+    const save = (text = payload.text) => f.app.inject({
+      method: "POST", url: path, headers, payload: { ...payload, text },
+    });
+    const notify = (feedbackId: string, viewId = fresh.viewId) => f.app.inject({
+      method: "POST", url: path + "/" + feedbackId + "/notify", headers, payload: { viewId },
+    });
+    const count = () => f.store.findBy("lightFeedback", "versionId", v.versionId).length;
+    const before = count();
+    const row = (await save()).json();
+    assert.equal((await save()).json().id, row.id);
+    assert.equal((await save("已变更")).statusCode, 409);
+    assert.equal((await save("  ")).statusCode, 400);
+    assert.equal(count(), before + 1);
+    assert.equal(f.store.db.prepare("SELECT id FROM operations WHERE scope=?").get(session.id), undefined);
+    assert.equal((await notify(row.id, closing.viewId)).statusCode, 401);
+    const foreign = f.store.put("lightFeedback", { versionId: next.versionId, kind: "confirmed", text: "" });
+    assert.equal((await notify(foreign.id)).statusCode, 403);
+    f.store.put("sessions", { runtime: "codex" }, session.id);
+    assert.equal((await notify(row.id)).json().code, "OFFLINE");
+    f.service.peers.set(env.id, peer);
+    assert.equal((await notify(row.id)).json().code, "BUSY");
+    f.service.setState(executionId, "completed");
+    let reject = true;
+    const messages: string[] = [];
+    peer.call = async (method: string, args: any) => {
+      if (method === "execution.status") return { status: "not_found" };
+      assert.equal(method, "execution.start");
+      assert.equal(args.session.id, session.id);
+      if (reject) throw new AppError("BUSY", "Busy", 409);
+      messages.push(args.message);
+      return { status: "running", stateVersion: 1 };
+    };
+    assert.equal((await notify(row.id)).json().code, "BUSY");
+    reject = false;
+    for (const response of await Promise.all([notify(row.id), notify(row.id)]))
+      assert.deepEqual(response.json(), { sessionId: session.id });
+    assert.deepEqual((await notify(row.id)).json(), { sessionId: session.id });
+    assert.equal(messages.length, 1);
+    assert.match(messages[0], /应用/);
+    assert.match(messages[0], /第 1 版|version 1/);
+    assert.match(messages[0], /修改意见|Changes requested/);
+    assert.match(messages[0], /请增大字号$/);
+    assert.equal(count(), before + 1);
+
+    // 环境收到消息后回执丢失，重试通过执行状态确认投递，不再启动 Agent。
+    f.service.setState(f.store.get("sessions", session.id).executionId, "completed");
+    const confirmation = (await f.app.inject({
+      method: "POST", url: path, headers, payload: { viewId: fresh.viewId, kind: "confirmed" },
+    })).json();
+    let remoteState = "not_found";
+    let starts = 0;
+    peer.call = async (method: string, args: any) => {
+      if (method === "execution.status") return { status: remoteState };
+      assert.equal(method, "execution.start");
+      assert.match(args.message, /已确认|Approved/);
+      starts++;
+      throw new AppError("STATUS_UNKNOWN", "Pending", 409);
+    };
+    assert.equal((await notify(confirmation.id)).json().code, "STATUS_UNKNOWN");
+    assert.equal((await notify(confirmation.id)).json().code, "STATUS_UNKNOWN");
+    remoteState = "completed";
+    assert.deepEqual((await notify(confirmation.id)).json(), { sessionId: session.id });
+    assert.equal(starts, 1);
+    assert.equal(count(), before + 2);
+  });
   t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
   t.mock.timers.tick(3600001);
   assert.equal((await asset(active)).statusCode, 401);

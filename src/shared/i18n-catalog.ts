@@ -18,6 +18,8 @@ export const messages = {
   "project.directory.storage": {"zh-CN": "环境 {environment}，路径“{path}”：目录所在磁盘空间或配额不足。", "en": "Environment {environment}, path “{path}”: The directory has insufficient disk space or quota."},
   "project.saveFailed": { "zh-CN": "保存项目记录失败，请重试。", "en": "Could not save the project record. Please retry." },
   "errors.LIGHT_QUOTA.storage": {"zh-CN":"该版本的存储空间已满。","en":"This version exceeds its storage quota."},
+  "light.notificationPending": {"zh-CN":"尚未确认来源会话收到通知，请稍后重试。","en":"Delivery to the source conversation is unconfirmed. Retry later."},
+  "light.feedbackMessage": {"zh-CN":"轻应用《{title}》第 {number} 版反馈：{kind}。","en":"Feedback on light app “{title}”, version {number}: {kind}."},
   "light.storageLoadFailed": {"zh-CN":"无法加载此版本的存档，请重试。","en":"Could not load the saved data for this version. Try again."},
   "light.storageCommitFailed": {"zh-CN":"部分存档更改保存失败。","en":"Some changes to saved data could not be saved."},
   "light.openHint": {"zh-CN":"用户可从会话卡片或轻应用页打开第 {number} 版。","en":"Open version {number} from its conversation card or the Light Apps page."},

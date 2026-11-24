@@ -74,6 +74,7 @@ type Grant = {
 // 版本索引本身就是会话卡片，和当前版本指针一起提交，不复制会话正文。
 export class LightApps {
   readonly quota: number;
+  private notifications = new Map<string, Promise<{ sessionId: string }>>();
   private grants = new Map<string, Grant>();
   constructor(
     private service: Service,
@@ -540,6 +541,47 @@ export class LightApps {
     )
       lightError("LIGHT_ACCESS", 401);
   }
+  /** 重试先核实已有执行。环境已接收的消息即使 Agent 随后失败也只通知一次。 */
+  private async notifyFeedback(version: Entity, feedback: Entity, validateView: () => void) {
+    const sessionId: string = version.sessionId;
+    let operationId: string = feedback.notificationOperationId ?? randomUUID();
+    if (!feedback.notificationOperationId)
+      this.store.put("lightFeedback", { notificationOperationId: operationId }, feedback.id);
+    const prior = this.store.db.prepare("SELECT state,result FROM operations WHERE id=? AND scope=?")
+      .get(operationId, sessionId);
+    if (prior) {
+      if (prior.state === "light_feedback_sent") return { sessionId };
+      const { executionId } = JSON.parse(String(prior.result));
+      const remote = await this.service.peer(version.environmentId).call("execution.status", { executionId });
+      if (remote.status === "not_found") {
+        // 明确拒收才能新建执行。超时可能仍在环境端启动，保留原标识等待核实。
+        if (this.service.execution(executionId).state !== "failed")
+          throw new AppError("STATUS_UNKNOWN", message("light.notificationPending"), 409);
+        validateView();
+        operationId = randomUUID();
+        this.store.put("lightFeedback", { notificationOperationId: operationId }, feedback.id);
+      } else if (!["queued", "dispatching", "running", "waiting", "stopping", "completed", "failed", "cancelled"].includes(remote.status)) {
+        throw new AppError("STATUS_UNKNOWN", message("light.notificationPending"), 409);
+      } else {
+        this.markNotificationSent(operationId);
+        return { sessionId };
+      }
+    }
+    const locale = this.service.languageSettings().locale;
+    const body = translate(locale, "light.feedbackMessage", {
+      title: version.title,
+      number: version.number,
+      kind: translate(locale, feedback.kind === "confirmed" ? "light.confirmed" : "light.changeRecorded"),
+    });
+    await this.service.send(sessionId, operationId, feedback.text ? body + "\n" + feedback.text : body);
+    this.markNotificationSent(operationId);
+    return { sessionId };
+  }
+
+  private markNotificationSent(operationId: string) {
+    this.store.db.prepare("UPDATE operations SET state='light_feedback_sent' WHERE id=?").run(operationId);
+  }
+
   private feedback(versionId: string) {
     return this.store
       .list("lightFeedback")
@@ -813,6 +855,7 @@ export class LightApps {
         .object({
           viewId: z.uuid(),
           kind: z.enum(["confirmed", "change", "selection"]),
+          operationId: z.uuid().optional(),
           text: z.string().trim().max(4000).default(""),
         })
         .strict()
@@ -820,11 +863,32 @@ export class LightApps {
       this.checkView(id, data.viewId, req.cookies.relay_session!);
       if (data.kind !== "confirmed" && !data.text)
         lightError("LIGHT_FILE", 400);
-      return this.store.put("lightFeedback", {
-        versionId: id,
-        kind: data.kind,
-        text: data.text,
+      return this.store.transaction(() => {
+        const prior = data.operationId && this.store.findBy("lightFeedback", "operationId", data.operationId)[0];
+        if (prior) {
+          if (prior.versionId !== id || prior.kind !== data.kind || prior.text !== data.text)
+            lightError("LIGHT_CONFLICT", 409);
+          return prior;
+        }
+        return this.store.put("lightFeedback", {
+          versionId: id, kind: data.kind, text: data.text, operationId: data.operationId,
+        });
       });
+    });
+    app.post("/api/light-versions/:id/feedback/:feedbackId/notify", async (req) => {
+      const { id, feedbackId } = z.object({ id: z.uuid(), feedbackId: z.uuid() }).parse(req.params);
+      const { viewId } = runtimeBody.strict().parse(req.body);
+      const validateView = () => this.checkView(id, viewId, req.cookies.relay_session!);
+      validateView();
+      const feedback = this.store.get("lightFeedback", feedbackId);
+      if (feedback.versionId !== id || feedback.kind === "selection") lightError("LIGHT_SCOPE", 403);
+      const active = this.notifications.get(feedbackId);
+      if (active) return active;
+      const version = this.store.get("lightVersions", id);
+      const pending = this.notifyFeedback(version, feedback, validateView)
+        .finally(() => this.notifications.delete(feedbackId));
+      this.notifications.set(feedbackId, pending);
+      return pending;
     });
     app.post(
       "/api/node/light-access",
