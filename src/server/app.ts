@@ -1273,6 +1273,10 @@ export async function createApp(options: AppOptions) {
     "/api/sessions/:id/config",
     async (req) => service.configureSession(req.params.id, req.body),
   );
+  app.put<{ Params: { id: string } }>("/api/sessions/:id/pin", async (req) => {
+    const { pinned } = z.object({ pinned: z.boolean() }).strict().parse(req.body);
+    return service.setSessionPinned(req.params.id, pinned);
+  });
   app.post("/api/sessions/manage", async (req) => {
     const data = z
       .object({

@@ -113,6 +113,28 @@ export class Service {
   /** 只转发给在线页面，不在服务端保存环境正文。 */
   sessionEvents = new EventEmitter().setMaxListeners(0);
 
+  /** 置顶只修改服务端列表索引，重复请求保留已确认的顺序。 */
+  setSessionPinned(id: string, pinned: boolean) {
+    return this.store.transaction(() => {
+      const session = this.store.get<Session>("sessions", id);
+      ensure(!session.archived, "ARCHIVED", i18nMessage("errors.ARCHIVED.restore.the.archived.session.first"), 409);
+      let pinOrder = session.pinOrder ?? null;
+      if (pinned === (pinOrder !== null)) return { id, pinOrder };
+
+      if (pinned) {
+        // 归档会话也占用原序号，恢复后仍能回到原来的位置。
+        const row = this.store.db.prepare(
+          "SELECT COALESCE(MAX(json_extract(body, '$.pinOrder')), 0) + 1 AS nextOrder FROM entities WHERE kind='sessions'",
+        ).get() as { nextOrder: number };
+        pinOrder = row.nextOrder;
+      } else {
+        pinOrder = null;
+      }
+      this.store.put("sessions", { pinOrder }, id);
+      return { id, pinOrder };
+    });
+  }
+
   /** 批量操作先完整校验再提交，任何忙碌会话都会阻止整批变更。 */
   manageSessions(ids: string[], action: "delete" | "archive" | "restore") {
     const unique = [...new Set(ids)];
@@ -427,6 +449,7 @@ export class Service {
         .list(kind)
         .map((session) => ({
           ...session,
+          pinOrder: session.pinOrder ?? null,
           lastUserMessageAt: session.lastUserMessageAt ?? null,
         }))
         .sort(compareSessionActivity);

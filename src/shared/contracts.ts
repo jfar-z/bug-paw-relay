@@ -216,7 +216,7 @@ export const sendSchema = z.object({
 export type Stage = z.infer<typeof stageSchema>;
 export type Board = z.infer<typeof boardSchema> & Entity;
 export type Session = z.infer<typeof sessionSchema> &
-  Entity & { status: string; executionId?: string };
+  Entity & { status: string; executionId?: string; pinOrder?: number | null };
 export type ModelConfig = z.infer<typeof modelSchema> & Entity;
 /** 工作台列表只传输侧栏与版本校验所需的元数据。 */
 export interface WorkbenchSessionSummary {
