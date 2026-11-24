@@ -4,6 +4,8 @@
 
 Give Codex or Claude Code a task on your own development machine from a phone or browser. Resume a conversation, approve a tool request, or use a board to move work through development, review, and human sign-off. Each work item keeps its stage conversations and delivered files together.
 
+[User guide · Mention a board in a session, create a work item, and open its handoff report](docs/user-guide.en.md)
+
 ![Workbench with the navigation expanded, showing the current stage and handoff history of Demo Task](docs/images/workbench.png)
 
 ## Main features
@@ -24,9 +26,9 @@ Give Codex or Claude Code a task on your own development machine from a phone or
 - **Your self-hosted server** provides a single-user workspace for environments, projects, session indexes, and boards. Files delivered at a board handoff are stored as snapshots, so you can download them even when the development machine is offline.
 - **Your browser** is where you work. Start a task on a desktop and open the same session on your phone to approve a request. You can install the mobile interface as a PWA. Sending messages and approving requests require a connection.
 
-For example, create a work item asking for an installation guide. In the development stage, the agent edits the guide in the assigned directory and hands the item over for human review. Open the conversation from the card, review the changes, and decide whether to mark the work complete.
+Type `@` in a project session, select a board, and ask the agent to turn your discussion into a work item. You can specify a starting stage and open the resulting card directly from the conversation. When the item enters an agent stage, its assigned agent starts work. If artifact delivery is enabled, a reviewer can open the report from the handoff history and follow the link to the stage session.
 
-![A completed board task with handoff history and links to stage sessions](docs/images/board-handoff.png)
+![The request, agent confirmation, and clickable work item card in the same conversation](docs/images/created-item.png)
 
 ## Start the server from source
 
