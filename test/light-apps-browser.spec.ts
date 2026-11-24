@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
-import { randomUUID } from "node:crypto";
+import { chromium, expect, test, type Page } from "@playwright/test";
+import { createHash, X509Certificate, randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { createServer } from "node:https";
 import { request } from "node:http";
@@ -11,10 +11,11 @@ import { createLightHost } from "../src/server/light-host.js";
 import { EnvironmentFiles } from "../src/connector/files.js";
 import { digest } from "../src/server/security.js";
 
-const origin = "https://main.example.test";
+const origin = "https://localhost";
 const domain = "apps.example.test";
 test.use({
   ignoreHTTPSErrors: true,
+  hasTouch: true,
   launchOptions: {
     executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
     args: [
@@ -39,7 +40,7 @@ test("会话与工作项发布、历史反馈、下架恢复及手机查看", as
   });
   const { app, store, service, light } = setup;
   service.saveLanguage({ preference: "zh-CN" });
-  const mainUrl = await app.listen({ port: 0 });
+  const mainUrl = await app.listen({ port: 0, host: "127.0.0.1" });
   const { app: host, internal } = await createLightHost({
     database: join(dir, "apps.db"),
     domain,
@@ -47,7 +48,7 @@ test("会话与工作项发布、历史反馈、下架恢复及手机查看", as
     mainOrigin: origin,
     mainUrl,
   });
-  const hostUrl = await host.listen({ port: 0 });
+  const hostUrl = await host.listen({ port: 0, host: "127.0.0.1" });
   light.config.hostUrl = await internal.listen({ port: 0 });
   const cert = join(dir, "cert.pem"),
     privateKey = join(dir, "key.pem");
@@ -70,6 +71,7 @@ test("会话与工作项发布、历史反馈、下架恢复及手机查看", as
     { stdio: "ignore" },
   );
   let hostingAvailable = true;
+  let dropSaveReceipt = false;
   const proxy = createServer(
     { cert: await readFile(cert), key: await readFile(privateKey) },
     (req, reply) => {
@@ -81,8 +83,18 @@ test("会话与工作项发布、历史反馈、下架恢复及手机查看", as
       }
       const incoming = request(
         new URL(req.url!, target),
-        { method: req.method, headers: req.headers },
+        {
+          method: req.method, headers: req.headers,
+          // 让独立设备拥有各自的回环源地址，保留服务端按客户端限流。
+          localAddress: req.headers["user-agent"]?.includes("InstalledFixture") ? "127.0.0.2" : "127.0.0.1",
+        },
         (response) => {
+          if (dropSaveReceipt && req.method === "POST" && req.url?.endsWith("/feedback")) {
+            dropSaveReceipt = false;
+            response.resume();
+            reply.writeHead(502).end();
+            return;
+          }
           reply.writeHead(response.statusCode!, response.headers);
           response.pipe(reply);
         },
@@ -125,8 +137,14 @@ test("会话与工作项发布、历史反馈、下架恢复及手机查看", as
     await mkdir(root);
     const reader = new EnvironmentFiles(() => [{ id: "root", path: root }]);
     const histories = new Map<string, { turns: any[]; events: any[] }>();
+    const deliveries: { sessionId: string; message: string }[] = [];
     const peer: any = {
       call(method: string, params: any) {
+        if (method === "execution.status") return { status: "not_found" };
+        if (method === "execution.start") {
+          deliveries.push({ sessionId: params.session.id, message: params.message });
+          return { status: "running", stateVersion: 1 };
+        }
         if (method === "session.history") {
           const history = histories.get(params.sessionId);
           return {
@@ -356,7 +374,7 @@ test("会话与工作项发布、历史反馈、下架恢复及手机查看", as
       .toBeGreaterThan(0);
     await frame.getByRole("button", { name: "选择 A" }).click();
     await expect(page.getByText("选择已记录")).toBeVisible();
-    await page.getByRole("button", { name: "确认此版本" }).click();
+    await page.getByRole("button", { name: "仅确认" }).click();
     await expect(page.getByText("反馈已提交")).toBeVisible();
     await page.screenshot({ path: info.outputPath("desktop-viewer.png") });
     await versionFrame!.evaluate(() => localStorage.setItem("checkpoint", "closing"));
@@ -383,7 +401,7 @@ test("会话与工作项发布、历史反馈、下架恢复及手机查看", as
     await expect(frame.locator("output")).toHaveText("空存档");
     await page.getByRole("button", { name: "提出修改" }).click();
     await page.getByRole("textbox", { name: "修改意见" }).fill("请调整标题");
-    await page.getByRole("button", { name: "提交反馈" }).click();
+    await page.getByRole("button", { name: "仅提交反馈" }).click();
     await expect(page.getByText("反馈已提交")).toBeVisible();
     await page
       .getByRole("button", { name: "关闭", exact: true })
@@ -435,6 +453,104 @@ test("会话与工作项发布、历史反馈、下架恢复及手机查看", as
     await expect(
       viewer.getByRole("button", { name: "确认此版本" }),
     ).toBeVisible();
+
+    expect(deliveries).toHaveLength(0);
+    // 对历史版本模拟保存回执丢失，再在离线通知失败后单独补发。
+    await viewer.getByRole("button", { name: "提出修改" }).click();
+    const draft = viewer.getByRole("textbox", { name: "修改意见" });
+    await draft.fill("请放大图例");
+    dropSaveReceipt = true;
+    const notifyChanges = viewer.getByRole("button", { name: "提交并请 Agent 处理" });
+    await notifyChanges.click();
+    await expect(viewer.getByRole("alert")).toBeVisible();
+    await expect(draft).toHaveValue("请放大图例");
+    const countSaved = () => store.findBy("lightFeedback", "versionId", first.versionId).length;
+    const saved = countSaved();
+    await notifyChanges.click();
+    await expect(viewer.getByText("反馈已保存，通知发送失败")).toBeVisible();
+    expect(countSaved()).toBe(saved);
+    service.setState(execution, "completed");
+    service.setState(secondExecution, "completed");
+    service.peers.set(env.id, peer);
+    await viewer.getByRole("button", { name: "重试通知" }).click();
+    const sessionLink = viewer.getByRole("link", { name: "查看会话" });
+    await expect(sessionLink).toHaveAttribute("href", "#chat/" + session.id);
+    expect(countSaved()).toBe(saved);
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0].sessionId).toBe(session.id);
+    expect(deliveries[0].message).toMatch(/交互报告.*1.*修改意见[\s\S]*请放大图例/);
+    service.setState(store.get("sessions", session.id).executionId, "completed");
+    await viewer.getByRole("button", { name: "确认并通知 Agent" }).click();
+    await expect(sessionLink).toBeVisible();
+    expect(deliveries).toHaveLength(2);
+    expect(deliveries[1].message).toMatch(/交互报告.*1.*已确认/);
+    // 后续下架和删除场景沿用原发布执行。
+    store.db.prepare("UPDATE executions SET state='running' WHERE id=?").run(execution);
+
+    await page.setViewportSize({ width: 844, height: 390 });
+    async function checkLandscape(active: Page, standalone: boolean) {
+      await active.setViewportSize({ width: 844, height: 390 });
+      const dialog = active.getByRole("dialog").last();
+      const enter = dialog.getByRole("button", { name: "全屏", exact: true });
+      const leave = dialog.getByRole("button", { name: "退出全屏" });
+      const output = active.frameLocator("iframe").locator("output");
+      await output.evaluate(el => { el.textContent = "游戏进行中"; });
+      expect(await active.evaluate(() => matchMedia("(display-mode: standalone)").matches)).toBe(standalone);
+      for (const system of [true, false]) {
+        if (!system) await active.evaluate(() => {
+          Object.defineProperty(Element.prototype, "requestFullscreen", { configurable: true, value: undefined });
+        });
+        await enter.tap();
+        await expect(leave).toBeVisible();
+        expect((await leave.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+        expect(await active.evaluate(() => !!document.fullscreenElement)).toBe(system);
+        await expect(dialog.getByRole("button", { name: "仅确认" })).toBeHidden();
+        expect(await active.locator("iframe").boundingBox()).toMatchObject({ width: 844, height: 390 });
+        await active.screenshot({ path: info.outputPath(`landscape-${standalone ? "pwa" : "browser"}-${system ? "system" : "window"}.png`) });
+        if (system) await active.evaluate(() => document.exitFullscreen());
+        else await leave.tap();
+        await expect(enter).toBeFocused();
+        await expect(dialog.getByRole("button", { name: "仅确认" })).toBeVisible();
+        await expect(output).toHaveText("游戏进行中");
+      }
+    }
+    await checkLandscape(page, false);
+    await page.setViewportSize({ width: 390, height: 844 });
+
+    // 使用临时 Chromium 用户目录安装应用，直接检查独立窗口的真实显示模式。
+    const publicKey = new X509Certificate(await readFile(cert)).publicKey.export({ type: "spki", format: "der" });
+    const fingerprint = createHash("sha256").update(publicKey).digest("base64");
+    const installed = await chromium.launchPersistentContext(join(dir, "profile"), {
+      ...info.project.use.launchOptions,
+      executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
+      args: ["--allow-insecure-localhost", "--ignore-certificate-errors-spki-list=" + fingerprint,
+        "--host-resolver-rules=MAP *.example.test 127.0.0.1"],
+      ignoreHTTPSErrors: true, hasTouch: true, locale: "zh-CN",
+      userAgent: (await page.evaluate(() => navigator.userAgent)) + " InstalledFixture",
+    });
+    try {
+      await installed.addCookies(await context.cookies(origin));
+      const tab = installed.pages()[0];
+      await tab.goto(origin);
+      const browser = await installed.newCDPSession(tab);
+      const manifest = await browser.send("Page.getAppManifest");
+      expect(manifest.errors).toEqual([]);
+      expect(manifest.url).toBe(origin + "/manifest.webmanifest");
+      expect(await browser.send("Page.getInstallabilityErrors")).toEqual({ installabilityErrors: [] });
+      await browser.send("PWA.install", { manifestId: origin + "/" });
+      await browser.send("PWA.changeAppUserSettings", { manifestId: origin + "/", displayMode: "standalone" });
+      const [window] = await Promise.all([
+        installed.waitForEvent("page", { timeout: 10000 }),
+        browser.send("PWA.launch", { manifestId: origin + "/", url: origin + "/#light-apps" }),
+      ]);
+      window.setDefaultTimeout(8000);
+      await window.goto(origin + "/#light-apps");
+      await window.getByRole("heading", { name: "交互报告" }).locator("..")
+        .getByRole("button", { name: "打开", exact: true }).click();
+      await checkLandscape(window, true);
+    } finally {
+      await installed.close();
+    }
 
     // 在查看器打开时下架，恢复后由重试签发新的视图授权。
     const setListing = async (listed: boolean) => {
@@ -490,6 +606,12 @@ test("会话与工作项发布、历史反馈、下架恢复及手机查看", as
     await expect(
       page.getByRole("button", { name: "Approve this version" }),
     ).toBeVisible();
+
+    await expect(viewer.getByRole("button", { name: "Approve only" })).toHaveClass(/ui-button-primary/);
+    await expect(viewer.getByRole("button", { name: "Approve and notify Agent" })).toHaveClass(/ui-button-secondary/);
+    await viewer.getByRole("button", { name: "Request changes" }).click();
+    await expect(viewer.getByRole("button", { name: "Submit and ask Agent to act" })).toHaveClass(/ui-button-primary/);
+    await expect(viewer.getByRole("button", { name: "Submit feedback only" })).toHaveClass(/ui-button-secondary/);
 
     // 会话事件实时送达，拒绝保持上架，新增版本需要重新审阅。
     await page.keyboard.press("Escape");

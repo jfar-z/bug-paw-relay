@@ -2082,3 +2082,35 @@ dialog[data-layout="viewer"] > .modal-body {
       env(safe-area-inset-bottom) env(safe-area-inset-left);
   }
 }
+
+/* 横屏操作留在宿主层，退出按钮避开刘海与圆角。 */
+.light-viewer-toolbar { display: none; }
+.light-fullscreen-entry:not([hidden]),
+.light-fullscreen-exit {
+  display: flex;
+  min-height: 44px;
+}
+@media (orientation: landscape) and (max-height: 540px),
+       (orientation: landscape) and (pointer: coarse) and (max-width: 1000px) {
+  .light-viewer-toolbar:has(.light-fullscreen-entry:not([hidden])) { display: flex; }
+  dialog[data-layout="viewer"] > header h2 { flex: 1; }
+}
+dialog[data-layout="viewer"]:has(.ui-embedded-view[data-expanded="true"]) {
+  margin: 0;
+  width: 100vw;
+  height: 100dvh;
+  max-width: none;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+}
+dialog[data-layout="viewer"]:has(.ui-embedded-view[data-expanded="true"]) > header,
+.ui-embedded-view[data-expanded="true"] ~ .ui-embedded-view-controls {
+  display: none;
+}
+.light-fullscreen-exit {
+  position: absolute;
+  z-index: 1;
+  top: max(8px, env(safe-area-inset-top));
+  right: max(8px, env(safe-area-inset-right));
+}

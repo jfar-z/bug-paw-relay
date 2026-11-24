@@ -500,6 +500,7 @@ export function Check({
 export function Modal({
   title,
   children,
+  headerActions,
   onClose,
   busy = false,
   layout = "default",
@@ -509,6 +510,7 @@ export function Modal({
 }: {
   title: string;
   children: ReactNode;
+  headerActions?: ReactNode;
   onClose: () => void;
   busy?: boolean;
   layout?: "default" | "viewer";
@@ -587,6 +589,7 @@ export function Modal({
     >
       <header>
         <h2 id={titleId}>{title}</h2>
+        {headerActions}
         <button
           type="button"
           className="btn ui-button ui-button-ghost ui-icon"

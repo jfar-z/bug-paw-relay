@@ -1,5 +1,6 @@
 import { useRows } from "./use-rows.js";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { PanelsTopLeft } from "lucide-react";
 import { api } from "./api.js";
 import {
@@ -769,48 +770,61 @@ function LightViewer({
   onClose: () => void;
   onFeedback: () => void;
 }) {
-  const [attempt, setAttempt] = useState(0);
+
   const view = useRef<ViewerSession | null>(null);
+  const toolbar = useRef<HTMLSpanElement>(null);
   const title = t("light.openVersion", {
     title: version.title,
     number: version.number,
   });
   return (
-    <Dialog layout="viewer" title={title} onClose={() => {
+    <Dialog layout="viewer" title={title} headerActions={<span ref={toolbar} className="light-viewer-toolbar" />} onClose={() => {
       if (view.current) view.current.flushAndClose(onClose);
       else onClose();
     }}>
       <LightViewerContent
-        key={attempt}
         title={title}
         versionId={version.id}
         view={view}
+        toolbar={toolbar}
         onFeedback={onFeedback}
-        retry={() => setAttempt((value) => value + 1)}
+        onNavigate={onClose}
       />
     </Dialog>
   );
 }
 
-/** 重试时替换 iframe 与反馈状态，离开时撤销本次打开的授权。 */
+/** 重新签发授权时保留反馈草稿和待通知记录。 */
 function LightViewerContent({
   title,
   versionId,
   view,
   onFeedback,
-  retry,
+  onNavigate,
+  toolbar,
 }: {
   title: string;
   versionId: string;
   view: { current: ViewerSession | null };
   onFeedback: () => void;
-  retry: () => void;
+  onNavigate: () => void;
+  toolbar: { current: HTMLSpanElement | null };
 }) {
+  const [attempt, setAttempt] = useState(0);
   const frame = useRef<HTMLIFrameElement>(null);
   const target = "relay-light-" + useId();
   const [ready, setReady] = useState(false);
   const [openError, setOpenError] = useState<UiFeedback>();
-  const [change, setChange] = useState(false);
+  const [kind, setKind] = useState<"change" | "confirmed">("confirmed");
+  const operation = useRef<string | undefined>(undefined);
+  const [pendingId, setPendingId] = useState<string>();
+  const [sessionId, setSessionId] = useState<string>();
+  const [notificationError, setNotificationError] = useState<UiFeedback>();
+  const [selectionResult, setSelectionResult] = useState<UiFeedback>();
+  const surface = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const toggle = useRef<HTMLSpanElement>(null);
+  const exitControl = useRef<HTMLDivElement>(null);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<{
@@ -826,6 +840,7 @@ function LightViewerContent({
   }, [onFeedback]);
 
   useEffect(() => {
+    setOpenError(undefined);
     const lifetime = new AbortController();
     const { signal } = lifetime;
     const element = frame.current!;
@@ -1059,65 +1074,109 @@ function LightViewerContent({
       }
     })();
     return dispose;
-  }, [path, target, versionId, view]);
+  }, [attempt, path, target, versionId, view]);
 
-  const submit = useCallback(
-    async (kind: FeedbackKind, value: string) => {
-      const session = view.current;
-      const submission = kind === "selection" ? "selection" : "user";
-      if (
-        !session?.ready ||
-        !session.port ||
-        feedbackPending.current[submission]
-      )
+  // 系统全屏与窗口铺满共用同一节点，进出时保留沙箱运行状态。
+  function leaveFullscreen() {
+    if (document.fullscreenElement === surface.current) {
+      void document.exitFullscreen().catch(() => {});
+    } else {
+      setExpanded(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!expanded) return;
+    const dialog = surface.current?.closest("dialog");
+    const sync = () => {
+      if (!document.fullscreenElement) setExpanded(false);
+    };
+    const cancel = (event: Event) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      leaveFullscreen();
+    };
+    exitControl.current?.querySelector("button")?.focus();
+    document.addEventListener("fullscreenchange", sync);
+    dialog?.addEventListener("cancel", cancel, true);
+    return () => {
+      document.removeEventListener("fullscreenchange", sync);
+      dialog?.removeEventListener("cancel", cancel, true);
+      toggle.current?.querySelector("button")?.focus();
+    };
+  }, [expanded]);
+
+  async function notify(id: string, viewId: string) {
+    setNotificationError(undefined);
+    try {
+      const receipt = await api(path + "/feedback/" + encodeURIComponent(id) + "/notify",
+        { viewId }, "POST", 30000);
+      setSessionId(receipt.sessionId);
+      setPendingId(undefined);
+    } catch (cause) {
+      setNotificationError(caughtFeedback(cause));
+    }
+  }
+
+  const submit = useCallback(async (type: FeedbackKind, value: string, send = false) => {
+    const session = view.current;
+    const channel = type === "selection" ? "selection" : "user";
+    if (!session?.ready || !session.port || feedbackPending.current[channel]) return;
+    feedbackPending.current[channel] = true;
+    if (channel === "user") {
+      setSending(true);
+      setResult(undefined);
+      setSessionId(undefined);
+      setSelectionResult(undefined);
+    }
+    try {
+      if (!await confirmDocument(session.port)) {
+        if (view.current === session) {
+          session.dispose();
+          setReady(false);
+          setOpenError(feedback("errors.LIGHT_ACCESS.light"));
+        }
         return;
-      feedbackPending.current[submission] = true;
-      if (kind !== "selection") {
-        setSending(true);
-        setResult(undefined);
       }
-      const invalidate = (error: UiFeedback) => {
-        session.dispose();
-        setReady(false);
-        setOpenError(error);
-      };
-      try {
-        const valid = await confirmDocument(session.port);
-        if (view.current !== session) return;
-        if (!valid) return invalidate(feedback("errors.LIGHT_ACCESS.light"));
-        await api(
-          path + "/feedback",
-          { viewId: session.viewId, kind, text: value },
-          "POST",
-          10000,
-        );
-        onFeedbackRef.current();
-        if (view.current !== session) return;
-        setResult({
-          message: feedback(
-            kind === "selection" ? "light.selectionSaved" : "light.saved",
-          ),
-        });
-        if (kind === "change") {
-          setText("");
-          setChange(false);
-        }
-      } catch (error) {
-        if (view.current !== session) return;
-        const status = (error as { status?: number })?.status;
-        if (status === 401 || status === 410 || status === 404) {
-          invalidate(feedback(viewingError(status)));
-        } else {
-          setResult({ message: caughtFeedback(error), error: true });
-        }
-      } finally {
-        feedbackPending.current[submission] = false;
-        if (submission === "user" && view.current === session)
-          setSending(false);
+      if (view.current !== session) return;
+      // 响应丢失时沿用原提交标识，编辑正文或切换反馈类型后再换号。
+      const operationId = type === "selection" ? crypto.randomUUID() : operation.current ??= crypto.randomUUID();
+      const saved = await api(path + "/feedback",
+        { viewId: session.viewId, operationId, kind: type, text: value }, "POST", 10000);
+      onFeedbackRef.current();
+      if (type === "selection") {
+        setSelectionResult(feedback("light.selectionSaved"));
+        return;
       }
-    },
-    [path, view],
-  );
+      operation.current = undefined;
+      setText("");
+      setKind("confirmed");
+      if (send) {
+        setPendingId(saved.id);
+        await notify(saved.id, session.viewId);
+      } else {
+        setResult({ message: feedback("light.saved") });
+      }
+    } catch (cause) {
+      if (type === "selection") setSelectionResult(caughtFeedback(cause));
+      else setResult({ message: caughtFeedback(cause), error: true });
+    } finally {
+      feedbackPending.current[channel] = false;
+      if (channel === "user") setSending(false);
+    }
+  }, [path, view]);
+
+  async function retryNotification() {
+    if (!pendingId || !view.current?.ready || feedbackPending.current.user) return;
+    feedbackPending.current.user = true;
+    setSending(true);
+    try {
+      await notify(pendingId, view.current.viewId);
+    } finally {
+      feedbackPending.current.user = false;
+      setSending(false);
+    }
+  }
 
   useEffect(() => {
     function receive(event: MessageEvent) {
@@ -1137,9 +1196,20 @@ function LightViewerContent({
     return () => window.removeEventListener("message", receive);
   }, [submit]);
 
+  const feedbackText = kind === "change" ? text.trim() : "";
+  const submitDisabled = sending || (kind === "change" && !feedbackText);
   return (
     <>
-      <div className="ui-embedded-view">
+      {toolbar.current && createPortal(<span ref={toggle} className="light-fullscreen-entry" hidden={expanded || !ready}>
+        <Button onClick={() => {
+          setExpanded(true);
+          void surface.current?.requestFullscreen?.().catch(() => {});
+        }}>{t("light.fullscreen")}</Button>
+      </span>, toolbar.current)}
+      <div ref={surface} className="ui-embedded-view" data-expanded={expanded}>
+        {expanded && <div ref={exitControl} className="light-fullscreen-exit">
+          <Button onClick={leaveFullscreen}>{t("light.exitFullscreen")}</Button>
+        </div>}
         <iframe
           ref={frame}
           name={target}
@@ -1152,7 +1222,7 @@ function LightViewerContent({
         {!ready && (
           <div className="ui-embedded-view-state">
             {openError ? (
-              <ReadError error={openError} retry={retry} />
+              <ReadError error={openError} retry={() => setAttempt(n => n + 1)} />
             ) : (
               <p role="status">{t("web.loading")}</p>
             )}
@@ -1162,43 +1232,51 @@ function LightViewerContent({
       {ready && (
         <div className="ui-embedded-view-controls">
           {storageError && <ErrorBox error={storageError} />}
-          <Actions>
-            <Button
-              variant="primary"
-              disabled={sending}
-              onClick={() => void submit("confirmed", "")}
-            >
-              {t("light.confirm")}
-            </Button>
-            <Button
-              disabled={sending}
-              aria-expanded={change}
-              onClick={() => setChange((value) => !value)}
-            >
-              {t("light.change")}
-            </Button>
-          </Actions>
-          {change && (
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                void submit("change", text.trim());
-              }}
-            >
-              <FormField label={t("light.changeNote")}>
-                <Textarea
-                  rows={3}
-                  value={text}
-                  maxLength={4000}
-                  onChange={(event) => setText(event.target.value)}
-                  readOnly={sending}
-                />
-              </FormField>
-              <Button type="submit" disabled={sending || !text.trim()}>
-                {t("light.submit")}
+          {!pendingId && <>
+            <Sections label={t("light.feedback")} value={kind} onChange={(value) => {
+              if (sending || value === kind) return;
+              setKind(value as "change" | "confirmed");
+              operation.current = undefined;
+              setResult(undefined);
+              setSessionId(undefined);
+            }} items={[
+              { value: "confirmed", label: t("light.confirm") },
+              { value: "change", label: t("light.change") },
+            ]} />
+            {kind === "change" && <FormField label={t("light.changeNote")}>
+              <Textarea rows={2} value={text} maxLength={4000} readOnly={sending}
+                onChange={event => {
+                  operation.current = undefined;
+                  setText(event.target.value);
+                }} />
+            </FormField>}
+            <Actions>
+              <Button variant="primary" disabled={submitDisabled}
+                onClick={() => void submit(kind, feedbackText, kind === "change")}>
+                {t(kind === "change" ? "light.submitNotify" : "light.confirmOnly")}
               </Button>
-            </form>
-          )}
+              <Button disabled={submitDisabled}
+                onClick={() => void submit(kind, feedbackText, kind === "confirmed")}>
+                {t(kind === "change" ? "light.submitOnly" : "light.confirmNotify")}
+              </Button>
+            </Actions>
+          </>}
+          {notificationError && <>
+            <p role="alert">{t("light.notifyFailed")}</p>
+            <ErrorBox error={notificationError} />
+            <Button disabled={sending} onClick={() => void retryNotification()}>{t("light.retryNotify")}</Button>
+          </>}
+          {sessionId && <Row>
+            <span role="status">{t("light.notified")}</span>
+            <LinkButton href={"#chat/" + sessionId} onClick={event => {
+              if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+              event.preventDefault();
+              const navigate = () => { onNavigate(); location.hash = "chat/" + sessionId; };
+              if (view.current) view.current.flushAndClose(navigate);
+              else navigate();
+            }}>{t("light.viewSession")}</LinkButton>
+          </Row>}
+          {selectionResult && <p role="status">{displayError(selectionResult)}</p>}
           {sending && <p role="status">{t("web.loading")}</p>}
           {result &&
             (result.error ? (
