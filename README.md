@@ -30,7 +30,20 @@
 
 ![会话中的建卡请求、Agent 的回复，以及可直接打开的工作项卡片](docs/images/created-item.png)
 
-## 从源码启动服务端
+## 启动服务端
+
+先选择一种方式准备镜像，然后在同一个 shell 中按下文启动本机服务或 HTTPS 双服务。
+
+### 从 GHCR 拉取镜像
+
+使用 Docker 的 Linux/amd64 容器模式即可匿名拉取。下面的候选镜像对应源码提交 `42938c3`。可在 [GHCR 镜像页面](https://github.com/jfar-z/bug-paw-relay/pkgs/container/bug-paw-relay) 查看已发布的标签，当前没有 `latest` 标签。
+
+```sh
+export RELAY_IMAGE=ghcr.io/jfar-z/bug-paw-relay:candidate-45164829828-1
+docker pull "$RELAY_IMAGE"
+```
+
+### 从源码构建镜像
 
 以下命令在 Linux x64 构建机的仓库根目录运行。准备 Docker、Node.js 24.19.0、npm、gcc、MinGW-w64 的 x64 C 编译器、curl、GNU tar、xz、zip 和 unzip。打包时需要访问 npm 和 Node.js 下载源。服务镜像内含 Windows 和 Linux 连接器，先打包再构建镜像。
 
@@ -38,7 +51,8 @@
 npm ci
 npm run build
 npm run package:connector
-docker build -t bug-paw-relay:local .
+export RELAY_IMAGE=bug-paw-relay:local
+docker build -t "$RELAY_IMAGE" .
 ```
 
 ### 只在自己的电脑上使用
@@ -49,8 +63,8 @@ docker build -t bug-paw-relay:local .
 
 ```sh
 docker volume create bugpaw-relay-local-data
-docker run --rm --user 0 -v bugpaw-relay-local-data:/data bug-paw-relay:local chown 1000:1000 /data
-docker run -d --name bugpaw-relay-local -p 127.0.0.1:3180:3180 -v bugpaw-relay-local-data:/data -e RELAY_PUBLIC_URL=http://127.0.0.1:3180 -e RELAY_INSECURE_COOKIE=true bug-paw-relay:local
+docker run --rm --user 0 -v bugpaw-relay-local-data:/data "$RELAY_IMAGE" chown 1000:1000 /data
+docker run -d --name bugpaw-relay-local -p 127.0.0.1:3180:3180 -v bugpaw-relay-local-data:/data -e RELAY_PUBLIC_URL=http://127.0.0.1:3180 -e RELAY_INSECURE_COOKIE=true "$RELAY_IMAGE"
 docker exec bugpaw-relay-local cat /data/setup-token
 ```
 
@@ -60,7 +74,7 @@ docker exec bugpaw-relay-local cat /data/setup-token
 
 ### 通过 HTTPS 使用主站和轻应用
 
-[Compose](compose.yaml) 从同一镜像启动主站和轻应用托管服务。以下示例假设反向代理与 Docker 同机。将示例域名换成自己的两个 HTTPS 站点，主站代理到 `127.0.0.1:3180` 并支持 `/api/node/connect` WebSocket 升级，轻应用域名代理到 `127.0.0.1:3181`。
+[Compose](compose.yaml) 从同一镜像启动主站和轻应用托管服务。将 `compose.yaml` 保存到部署目录并在该目录执行命令。以下示例假设反向代理与 Docker 同机。将示例域名换成自己的两个 HTTPS 站点，主站代理到 `127.0.0.1:3180` 并支持 `/api/node/connect` WebSocket 升级，轻应用域名代理到 `127.0.0.1:3181`。
 
 ```sh
 export RELAY_PUBLIC_URL=https://relay.example.com
@@ -71,7 +85,7 @@ docker compose up -d --wait
 docker compose exec relay cat /data/setup-token
 ```
 
-首次生成共享密钥后，将三个环境变量保存在部署机受保护的配置中，后续启动时复用。备份时同时保存两个服务的数据目录。
+首次生成共享密钥后，将 `RELAY_IMAGE` 和上述三个环境变量保存在部署机受保护的配置中，后续启动时复用。备份时同时保存两个服务的数据目录。
 
 在浏览器打开该 HTTPS 地址，用终端显示的一次性令牌初始化管理员账号，设置至少 12 位的密码。登录后可启用 TOTP 双重验证。
 
