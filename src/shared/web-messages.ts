@@ -2900,6 +2900,9 @@ export const webMessages = {
     "zh-CN": "先在项目管理中添加项目，再创建会话。",
     en: "Add a project in Project management, then create a session.",
   },
+  "web.pinSession": { "zh-CN": "置顶", en: "Pin" },
+  "web.unpinSession": { "zh-CN": "取消置顶", en: "Unpin" },
+  "web.pinnedSessions": { "zh-CN": "置顶", en: "Pinned" },
   "web.sessionList": {
     "zh-CN": "会话列表",
     en: "Session list",

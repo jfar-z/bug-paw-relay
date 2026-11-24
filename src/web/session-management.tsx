@@ -217,6 +217,10 @@ export function SessionCard({
   onOpen,
   archived,
   onManage,
+  onPin,
+  pinned,
+  pinBusy,
+  rowId,
   onSelect,
   status,
 }: any) {
@@ -228,7 +232,7 @@ export function SessionCard({
   const cancel = () => clearTimeout(timer.current);
   useEffect(() => cancel, []);
   return (
-    <div className="session-entry">
+    <div className="session-entry" id={rowId}>
       {selecting && (
         <Check checked={checked} onChange={onCheck}>
           <span className="sr-only">
@@ -287,20 +291,18 @@ export function SessionCard({
         openSignal={signal}
         icon={<MoreHorizontal aria-hidden="true" />}
         items={[
+          ...(!archived && onPin ? [{
+            label: pinned ? tr("web.unpinSession") : tr("web.pinSession"),
+            disabled: pinBusy,
+            onSelect: onPin,
+          }] : []),
           {
-            value: archived ? "restore" : "archive",
             label: archived ? tr("web.unarchive") : tr("web.archive"),
+            onSelect: () => onManage(archived ? "restore" : "archive"),
           },
-          { value: "delete", label: tr("web.delete") },
-          { value: "select", label: tr("web.selectMultiple") },
-        ].map((option) => ({
-          label: option.label,
-          danger: option.value === "delete",
-          onSelect: () =>
-            ((value) => (value === "select" ? onSelect() : onManage(value)))(
-              option.value,
-            ),
-        }))}
+          { label: tr("web.delete"), danger: true, onSelect: () => onManage("delete") },
+          { label: tr("web.selectMultiple"), onSelect },
+        ]}
       />
     </div>
   );

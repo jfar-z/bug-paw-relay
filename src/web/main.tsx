@@ -297,6 +297,7 @@ function App() {
   const refreshing = useRef(false);
   const refreshQueued = useRef(false);
   const agentOrderRevision = useRef(0);
+  const pinRevision = useRef(0);
   const projectOrderRevision = useRef(0);
   const [notice, setNotice] = useState<UiFeedback>("");
   const [modal, setModal] = useState<any>(null);
@@ -335,7 +336,10 @@ function App() {
     try {
       const agentRevision = agentOrderRevision.current;
       const revision = projectOrderRevision.current;
+      const startedPinRevision = pinRevision.current;
       const data = await api("/state");
+      // 置顶保存已触发补读，丢弃保存前开始的旧快照。
+      if (startedPinRevision !== pinRevision.current) return;
       // 改名成功后，较早发出的轮询响应不能把标题回退到旧版本。
       setState((current: any) => ({
         ...data,
@@ -730,6 +734,14 @@ function App() {
                 onRefresh={refresh}
                 state={state}
                 selected={selected}
+                onPinSaved={(id: string, pinOrder: number | null) => {
+                  pinRevision.current++;
+                  setState((current: any) => ({
+                    ...current,
+                    sessions: current.sessions.map((row: any) => row.id === id ? { ...row, pinOrder } : row),
+                  }));
+                  void refresh();
+                }}
                 onProjects={() => setModal({ type: "projects" })}
                 action={action}
               />

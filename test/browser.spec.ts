@@ -92,6 +92,7 @@ test("桌面与移动端真实业务操作、统一控件和 PWA", async ({ page
     ).toBeVisible();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "bug");
     await page.getByRole("button", { name: "会话", exact: true }).click();
+    await page.getByRole("button", { name: "会话列表", exact: true }).click();
     await page.getByRole("button", { name: "项目管理", exact: true }).click();
     await page.getByRole("button", { name: "新建项目", exact: true }).click();
     await page.getByLabel("名称", { exact: true }).fill("浏览器测试项目");
@@ -673,6 +674,7 @@ test("客户端新增根目录自动保存并同步到服务端项目选择器",
       .click();
     await server.getByRole("button", { name: "登录", exact: true }).click();
     await server.getByRole("button", { name: "会话", exact: true }).click();
+    await server.getByRole("button", { name: "会话列表", exact: true }).click();
     await server.getByRole("button", { name: "项目管理", exact: true }).click();
     await server.getByRole("button", { name: "新建项目", exact: true }).click();
     await server.getByLabel("名称", { exact: true }).fill("第二根目录项目");

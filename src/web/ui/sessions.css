@@ -313,3 +313,20 @@
 .session-publication-version {
   font-size: 13px;
 }
+
+/* 桌面环境会话沿用同一标题按钮开关侧栏，收起后正文占满可用宽度。 */
+@media (min-width: 760px) {
+  .conversations-layout:not(.show-list) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .conversations-layout:not(.show-list) > .session-list {
+    display: none;
+  }
+  .conversations-layout .chat .btn.phone-list,
+  .conversations-layout .empty-chat-heading,
+  .conversations-layout .empty-chat-heading > div {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+}

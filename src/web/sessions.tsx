@@ -207,6 +207,7 @@ export function Sessions({
   selected,
   projects,
   onProjects,
+  onPinSaved,
   onCreateAgent,
   action,
   onRefresh,
@@ -234,7 +235,7 @@ export function Sessions({
   const [commandError, setCommandError] = useState<UiFeedback>("");
   const [mentions, setMentions] = useState<Mention[]>([]);
   const [configuring, setConfiguring] = useState(false);
-  const [list, setList] = useState(!selected);
+  const [list, setList] = useState(false);
   const [busy, setBusy] = useState(false);
   const [fileHref, setFileHref] = useState("");
   const fileSession = useRef("");
@@ -272,7 +273,7 @@ export function Sessions({
     setConfiguring(false);
     setBusy(false);
     setAnswer(null);
-    setList(!selected);
+    if (!selected || matchMedia("(max-width: 759px)").matches) setList(false);
     follow.current = true;
     if (!session || native) return;
     let cancelled = false;
@@ -478,7 +479,7 @@ export function Sessions({
       if (result.claudeMode === "environment") setAutoTerminal(result.id);
       await action(async () => {});
       location.hash = "chat/" + result.id;
-      setList(false);
+      if (matchMedia("(max-width: 759px)").matches) setList(false);
     } catch (e) {
       setError(caughtFeedback(e as Error));
     } finally {
@@ -771,6 +772,68 @@ export function Sessions({
     if (follow.current && messages.current)
       messages.current.scrollTop = messages.current.scrollHeight;
   }, [history, pending, timeline.length]);
+  // 置顶顺序来自服务端索引；归档会话始终保留在项目组内。
+  const pinned = visible.filter((s: any) => !s.archived && s.pinOrder != null)
+    .sort((a: any, b: any) => b.pinOrder - a.pinOrder);
+  const [pinning, setPinning] = useState("");
+  const [pinError, setPinError] = useState<UiFeedback>("");
+  const movedMenu = useRef("");
+  useEffect(() => {
+    if (!movedMenu.current) return;
+    const row = document.getElementById("session-row-" + movedMenu.current);
+    // 行跨组重建后恢复菜单焦点；用户已转移焦点时保留其当前位置。
+    if (list && document.activeElement === document.body && row?.getClientRects().length) {
+      row.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')?.focus();
+    }
+    movedMenu.current = "";
+  }, [state.sessions, list]);
+  async function savePin(s: any) {
+    setPinning(s.id);
+    setPinError("");
+    try {
+      const { id, pinOrder } = await api("/sessions/" + s.id + "/pin", { pinned: s.pinOrder == null }, "PUT");
+      if (document.activeElement?.closest(".session-entry")?.id === "session-row-" + id)
+        movedMenu.current = id;
+      onPinSaved(id, pinOrder);
+    } catch (e) {
+      setPinError(caughtFeedback(e as Error));
+    } finally {
+      setPinning("");
+    }
+  }
+  const renderCard = (s: any) => (
+    <SessionCard
+      key={s.id}
+      title={s.title}
+      active={s.id === selected}
+      selecting={selecting}
+      checked={selection.includes(s.id)}
+      archived={s.archived}
+      pinned={s.pinOrder != null}
+      rowId={"session-row-" + s.id}
+      pinBusy={!!pinning}
+      onPin={() => void savePin(s)}
+      onCheck={(checked: boolean) =>
+        setSelection((ids) =>
+          checked
+            ? [...new Set([...ids, s.id])]
+            : ids.filter((id) => id !== s.id),
+        )
+      }
+      onOpen={() => {
+        location.hash = "chat/" + s.id;
+        if (matchMedia("(max-width: 759px)").matches) setList(false);
+      }}
+      onSelect={() => {
+        setSelecting(true);
+        setSelection([s.id]);
+      }}
+      onManage={(operation: string) =>
+        setConfirm({ ids: [s.id], action: operation })
+      }
+      status={s.status}
+    />
+  );
   return (
     <WorkspaceLayout kind="conversations" open={list}>
       <SessionSidebar
@@ -820,10 +883,18 @@ export function Sessions({
           </NavigationButton>
         </div>
         {(!session || list) && <ErrorBox error={error} />}
+        <ErrorBox error={pinError} />
+        {pinned.length > 0 && (
+          <section aria-label={tr("web.pinnedSessions")}>
+            <div className="section-label">{tr("web.pinnedSessions")}</div>
+            {pinned.map(renderCard)}
+          </section>
+        )}
         {projects
           .filter((p: any) => !filter || p.id === filter)
           .map((p: SessionProject) => {
-            const matches = visible.filter((s: any) => s.projectId === p.id);
+            const projectMatches = visible.filter((s: any) => s.projectId === p.id);
+            const matches = projectMatches.filter((s: any) => s.archived || s.pinOrder == null);
             const choices = sessionAgentChoices(
               p,
               state.environments,
@@ -927,36 +998,8 @@ export function Sessions({
                     </Button>
                   </p>
                 )}
-                {matches.map((s: any) => (
-                  <SessionCard
-                    key={s.id}
-                    title={s.title}
-                    active={s.id === selected}
-                    selecting={selecting}
-                    checked={selection.includes(s.id)}
-                    archived={s.archived}
-                    onCheck={(checked: boolean) =>
-                      setSelection((ids) =>
-                        checked
-                          ? [...new Set([...ids, s.id])]
-                          : ids.filter((id) => id !== s.id),
-                      )
-                    }
-                    onOpen={() => {
-                      location.hash = "chat/" + s.id;
-                      setList(false);
-                    }}
-                    onSelect={() => {
-                      setSelecting(true);
-                      setSelection([s.id]);
-                    }}
-                    onManage={(operation: string) =>
-                      setConfirm({ ids: [s.id], action: operation })
-                    }
-                    status={s.status}
-                  />
-                ))}
-                {!matches.length && (
+                {matches.map(renderCard)}
+                {!projectMatches.length && (
                   <p className="group-empty">
                     {search
                       ? tr("web.noMatchingSessions")
@@ -1014,7 +1057,7 @@ export function Sessions({
                 <Button
                   placement="sidebar-toggle"
                   shape="icon"
-                  onClick={() => setList(true)}
+                  aria-expanded={list} onClick={() => setList(!list)}
 
                   aria-label={tr("web.sessionList")}
                   title={tr("web.sessionList")}
@@ -1032,7 +1075,7 @@ export function Sessions({
           <>
             <ConversationHeader
               title={history?.title || session.title}
-              navigation={<Button placement="sidebar-toggle" shape="icon" aria-label={tr("web.sessionList")} onClick={() => setList(true)}><PanelLeft aria-hidden="true" /></Button>}
+              navigation={<Button placement="sidebar-toggle" shape="icon" aria-label={tr("web.sessionList")} aria-expanded={list} onClick={() => setList(!list)}><PanelLeft aria-hidden="true" /></Button>}
               actions={<ActionMenu label={tr("ui.more")} icon={<MoreHorizontal aria-hidden="true" />} items={[
                 { label: tr("web.sessionDetails"), onSelect: () => setDetailsOpen(true) },
                 { label: session.archived ? tr("web.unarchive") : tr("web.archive"), disabled: active, onSelect: () => setConfirm({ ids: [session.id], action: session.archived ? "restore" : "archive" }) },

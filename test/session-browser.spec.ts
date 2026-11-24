@@ -101,9 +101,7 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
     // 空态入口必须位于顶部左侧，并能打开和关闭会话抽屉。
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(base + "/#chat");
-    await page
-      .getByRole("button", { name: "关闭会话列表", exact: true })
-      .click();
+    await expect(page.locator(".session-list")).toBeHidden();
     const entry = page.getByRole("button", { name: "会话列表", exact: true });
     await expect(entry).toBeVisible();
     const entryBox = (await entry.boundingBox())!;
@@ -989,6 +987,7 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
     store.remove("agents", initialAgent.id);
     store.remove("agents", configAgent.id);
     await page.reload();
+    await page.getByRole("button", { name: "会话列表", exact: true }).click();
     const newSession = page.getByRole("button", {
       name: "新建会话：测试项目",
       exact: true,
@@ -1058,6 +1057,7 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
       updated.version,
     );
     await page.reload();
+    await page.getByRole("button", { name: "会话列表", exact: true }).click();
     const trigger = page.getByRole("button", {
       name: "新建会话：测试项目",
       exact: true,
@@ -1176,6 +1176,7 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
           "data-theme",
           theme,
         );
+        await phone.getByRole("button", { name: "Session list", exact: true }).tap();
         await phone.getByRole("button", { name: /New session:.*单目标/ }).tap();
         const option = phone.getByRole("option", {
           name: longName,
@@ -1215,6 +1216,7 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
       await expect(phone.getByRole("option", { name: "Auto-approve" })).toHaveAttribute("aria-selected", "true");
       await phone.keyboard.press("Escape");
       await phone.goto(base + "/#chat");
+      await phone.getByRole("button", { name: "Session list", exact: true }).tap();
       const projectTrigger = phone.getByRole("button", {
         name: /New session:.*测试项目/,
       });
@@ -1329,6 +1331,7 @@ test("会话按用户消息排序且最近工作标题单行省略", async ({ pa
       "工作台新会话",
     );
     await page.goto(base + "/#chat");
+    await page.getByRole("button", { name: "会话列表", exact: true }).click();
     await expect(page.locator(".project-group summary strong")).toHaveText([
       first.name,
       second.name,
@@ -1556,6 +1559,7 @@ test("会话项目紧凑分组与手动排序", async ({ browser }) => {
       .run(digest(cookie), "owner", Date.now() + 600000);
     await context.addCookies([{ name: "relay_session", value: cookie, url: base }]);
     await page.goto(base + "/#chat");
+    await page.getByRole("button", { name: "会话列表", exact: true }).click();
   };
   store.put("users", { username: "fixture" }, "owner");
   try {
@@ -1640,7 +1644,9 @@ test("会话项目紧凑分组与手动排序", async ({ browser }) => {
     await expect(page.getByRole("option")).toHaveText(["全部项目", ...sorted]);
     await page.keyboard.press("Escape");
     await page.reload();
+    await page.getByRole("button", { name: "会话列表", exact: true }).click();
     await expect(groupNames).toHaveText(sorted);
+    await page.goto("about:blank");
     await context.clearCookies();
     await signIn();
     await expect(groupNames).toHaveText(sorted);
@@ -1667,6 +1673,7 @@ test("会话项目紧凑分组与手动排序", async ({ browser }) => {
         service.saveLanguage({ preference: locale });
         await page.evaluate((theme) => localStorage.setItem("relay-theme", theme), theme);
         await page.reload();
+        await page.getByRole("button", { name: locale === "en" ? "Session list" : "会话列表", exact: true }).tap();
         const managementLabel = locale === "en" ? "Project management" : "项目管理";
         await page.getByRole("button", { name: managementLabel, exact: true }).tap();
         const modal = page.getByRole("dialog", { name: managementLabel });
@@ -1689,6 +1696,94 @@ test("会话项目紧凑分组与手动排序", async ({ browser }) => {
     await page.getByRole("button", { name: "Project management", exact: true }).tap();
     await expect(page.getByRole("button", { name: "Adjust order", exact: true })).toHaveCount(0);
     expect(errors).toEqual([]);
+  } finally {
+    await context.close();
+    await app.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** 在离线环境的真实索引上验证跨项目移动、筛选、失败重试与归档恢复。 */
+test("环境会话置顶与取消置顶", async ({ browser }) => {
+  const dir = mkdtempSync(join(tmpdir(), "relay-pin-browser-"));
+  const config = { dataDir: dir, publicUrl: "http://127.0.0.1", secureCookie: false, webDir: resolve("dist/web") };
+  const { app, service, store } = await createApp(config);
+  const context = await browser.newContext({ hasTouch: true, locale: "zh-CN" });
+  const page = await context.newPage();
+  try {
+    const environmentId = store.put("environments", { approved: true, name: "Offline", roots: [] }).id;
+    const makeSession = (title: string, project: string, executionId?: string) => {
+      const projectId = store.put("projects", { name: project, directories: [] }).id;
+      return store.put("sessions", { title, projectId, environmentId, executionId, runtime: "codex", status: "completed" });
+    };
+    const first = makeSession("Alpha", "A");
+    const execution = randomUUID();
+    const board = makeSession("Beta", "B", execution);
+    store.db.prepare("INSERT INTO executions VALUES(?,?,?,?,?,?,?)")
+      .run(execution, randomUUID(), board.id, environmentId, "completed", JSON.stringify({ boardId: randomUUID() }), board.createdAt);
+    const token = randomUUID();
+    store.put("users", { username: "fixture" }, "owner");
+    store.db.prepare("INSERT INTO auth_sessions VALUES(?,?,?)").run(digest(token), "owner", Date.now() + 600000);
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    config.publicUrl += ":" + (app.server.address() as { port: number }).port;
+    await context.addCookies([{ name: "relay_session", value: token, url: config.publicUrl }]);
+    await page.goto(config.publicUrl + "/#chat/" + first.id);
+    const sidebar = page.locator(".session-list");
+    const button = (name: string) => page.getByRole("button", { name, exact: true });
+    const menu = (name: string) => page.getByRole("menuitem", { name, exact: true });
+    const pinned = sidebar.getByRole("region", { name: "置顶" });
+    await expect(sidebar).toBeHidden();
+    await button("会话列表").press("Enter");
+    await button("会话操作：Alpha").press("Enter");
+    await menu("置顶").press("Enter");
+    await expect(pinned.locator(".session-entry strong")).toHaveText(["Alpha"]);
+    await expect(button("会话操作：Alpha")).toBeFocused();
+    await button("会话操作：Beta").click();
+    await menu("置顶").click();
+    await expect(pinned.locator(".session-entry strong")).toHaveText(["Beta", "Alpha"]);
+    await expect(sidebar.locator(".session-entry")).toHaveCount(2);
+    await expect(sidebar.locator(".project-group summary small")).toHaveText(["0", "0"]);
+    await expect(sidebar.locator(".group-empty")).toHaveCount(0);
+    await button("筛选项目").click();
+    await page.getByRole("option", { name: "A", exact: true }).click();
+    await expect(pinned.locator(".session-entry strong")).toHaveText(["Alpha"]);
+    const search = page.getByPlaceholder("搜索会话");
+    await search.fill("Beta");
+    await expect(pinned).toHaveCount(0);
+    await search.fill("");
+    await button("会话操作：Alpha").click();
+    await menu("归档").click();
+    await button("确认操作").click();
+    await expect(pinned).toHaveCount(0);
+    await button("查看归档").click();
+    await button("会话操作：Alpha").click();
+    await expect(menu("取消置顶")).toHaveCount(0);
+    await menu("取消归档").click();
+    await button("确认操作").click();
+    await button("返回最近会话").click();
+    await expect(pinned.locator(".session-entry strong")).toHaveText(["Alpha"]);
+    service.saveLanguage({ preference: "en" });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.reload();
+    await expect(sidebar).toBeHidden();
+    await button("Session list").tap();
+    const englishPins = sidebar.getByRole("region", { name: "Pinned" });
+    await expect(englishPins.locator(".session-entry strong")).toHaveText(["Beta", "Alpha"]);
+    const endpoint = "**/api/sessions/" + first.id + "/pin";
+    await page.route(endpoint, route => route.fulfill({ status: 503, json: {} }));
+    await button("Session actions:Alpha").tap();
+    await menu("Unpin").tap();
+    await expect(sidebar.getByRole("alert").filter({ hasText: "503" })).toBeVisible();
+    await expect(englishPins.locator(".session-entry strong")).toHaveText(["Beta", "Alpha"]);
+    await page.unroute(endpoint);
+    await button("Session actions:Alpha").tap();
+    await menu("Unpin").tap();
+    await expect(englishPins.locator(".session-entry strong")).toHaveText(["Beta"]);
+    await expect(sidebar.locator(".project-group .session-entry strong")).toHaveText(["Alpha"]);
+    await expect(page).toHaveURL(config.publicUrl + "/#chat/" + first.id);
+    await englishPins.getByTitle("Beta", { exact: true }).tap();
+    await expect(sidebar).toBeHidden();
+    await expect(page).toHaveURL(config.publicUrl + "/#chat/" + board.id);
   } finally {
     await context.close();
     await app.close();
