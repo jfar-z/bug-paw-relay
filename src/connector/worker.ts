@@ -442,7 +442,7 @@ export async function runWorker(settings: ConnectorConfig) {
         }
         // TLS 校验服务端身份，应用握手完成前仍禁止派发任何环境操作。
         ensure(
-          authenticated,
+          authenticated && socket === ws && !stopped,
           "UNAUTHENTICATED",
           i18nMessage(
             "errors.UNAUTHENTICATED.connection.authentication.has.not.completed",

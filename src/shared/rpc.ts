@@ -35,6 +35,8 @@ export class RpcPeer {
     if (m.method !== undefined && typeof m.method !== "string") return;
     if (m.method) {
       try {
+        // 与前序响应唤醒的 await 按微任务入队顺序执行，避免同批请求越过认证状态更新。
+        await Promise.resolve();
         const result = await this.handle(m.method, m.params);
         if (m.id !== undefined)
           this.respond(
@@ -74,6 +76,7 @@ export class RpcPeer {
           );
       }
     } else {
+      if (!m.error && !Object.hasOwn(m, "result")) return;
       const p = this.pending.get(String(m.id));
       if (!p) return;
       clearTimeout(p.timer);

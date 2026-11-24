@@ -1,3 +1,5 @@
+import { RpcPeer } from "../src/shared/rpc.js";
+import { AppError } from "../src/shared/contracts.js";
 import { ConnectorStore } from "../src/connector/store.js";
 import { spawn } from "node:child_process";
 import test from "node:test";
@@ -544,6 +546,79 @@ test("匿名 WebSocket 发送 null 和其他畸形消息不会终止服务", asy
     assert.equal((await f.app.inject("/api/health")).statusCode, 200);
   } finally {
     await f.close();
+  }
+});
+
+/** 同一调用栈按线序投递帧，确保认证响应和相邻请求之间没有事件循环空隙。 */
+test("RPC 连续帧按认证响应前后的顺序派发业务", async () => {
+  function connection() {
+    let authenticated = false;
+    let executions = 0;
+    const outbound = new Map<string, any>();
+    const peer = new RpcPeer(
+      (raw) => {
+        const frame = JSON.parse(raw);
+        outbound.set(frame.id, frame);
+      },
+      async () => {
+        if (!authenticated) throw new AppError("UNAUTHENTICATED", "未认证", 401);
+        return ++executions;
+      },
+    );
+    async function authenticate(timeout?: number) {
+      await peer.call("identity.authenticate", {}, timeout);
+      authenticated = true;
+    }
+    const deliver = (frame: object) =>
+      peer.receive(JSON.stringify({ jsonrpc: "2.0", ...frame }));
+    const request = (id: string) => deliver({ method: "business", id });
+    const authId = () =>
+      [...outbound.values()].find((frame) => frame.method === "identity.authenticate").id;
+    const denied = (id: string) => {
+      assert.equal(outbound.get(id)?.error?.data.status, 401);
+      assert.equal(outbound.get(id)?.error?.data.code, "UNAUTHENTICATED");
+    };
+    return {
+      peer, authenticate, deliver, request, authId, denied, outbound,
+      executions: () => executions,
+    };
+  }
+
+  for (const phase of ["首次连接", "重连"]) {
+    const c = connection();
+    const auth = c.authenticate();
+    const before = c.request("before");
+    const reply = c.deliver({ id: c.authId(), result: { ok: true } });
+    const after = c.request("after");
+    await Promise.all([before, reply, after, auth]);
+    c.denied("before");
+    assert.deepEqual(c.outbound.get("after"), { jsonrpc: "2.0", id: "after", result: 1 }, phase);
+    assert.equal(c.executions(), 1);
+    c.peer.close();
+  }
+
+  for (const reason of ["拒绝", "超时", "替换"] as const) {
+    const old = connection();
+    const rejected = assert.rejects(
+      old.authenticate(reason === "超时" ? 0 : undefined),
+      { code: { "拒绝": "RPC_ERROR", "超时": "STATUS_UNKNOWN", "替换": "OFFLINE" }[reason] },
+    );
+    const id = old.authId();
+    if (reason === "拒绝")
+      await old.deliver({ id, error: { code: -32000, message: "拒绝" } });
+    if (reason === "替换") old.peer.close();
+    await rejected;
+    const current = connection();
+    const pending = current.authenticate();
+    await current.deliver({ id: current.authId() });
+    await old.deliver({ id, result: { ok: true } });
+    await current.deliver({ id, result: { ok: true } });
+    await Promise.all([old.request("old"), current.request("current")]);
+    old.denied("old");
+    current.denied("current");
+    assert.equal(old.executions() + current.executions(), 0);
+    current.peer.close();
+    await assert.rejects(pending);
   }
 });
 
