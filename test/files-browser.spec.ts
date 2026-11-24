@@ -1,3 +1,4 @@
+import { attachmentExamples, checkAttachmentExamples } from "./attachment-markdown-fixture.js";
 import { test, expect } from "@playwright/test";
 import { mkdtemp, mkdir, writeFile, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -27,9 +28,9 @@ test("环境文件弹窗、分块进度、文本图片视频预览、下载与�
     "<script>window.previewExecuted = true</script>",
   ];
   const content = sample.join("\n") + "\n".repeat(30 - sample.length) +
-    longLine + "\n\n" + "正文内容 ".repeat(30000) + "\n".repeat(10000) + "截断之后";
+    longLine + "\n\n" + attachmentExamples + "\n\n" + "正文内容 ".repeat(30000) + "\n".repeat(10000) + "截断之后";
   await writeFile(join(root, "报告 文件.md"), content);
-  await writeFile(join(root, "README.MD"), sample.join("\n"));
+  await writeFile(join(root, "README.MD"), sample.join("\n") + "\n\n" + attachmentExamples);
   await writeFile(join(root, "notes.txt"), "# 普通文本");
   await writeFile(join(root, "empty.md"), "");
   await writeFile(join(root, "bad.md"), Buffer.from([0xff]));
@@ -117,6 +118,7 @@ test("环境文件弹窗、分块进度、文本图片视频预览、下载与�
     rootId: "root",
     runtime: "claude",
   });
+  service.saveLanguage({ preference: "zh-CN" });
   const metadataRequests: string[] = [];
   page.on("request", (request) => {
     if (/\/api\/sessions\/[^/]+\/files$/.test(request.url()))
@@ -201,11 +203,11 @@ test("环境文件弹窗、分块进度、文本图片视频预览、下载与�
     await expect(dialog.locator(".file-progress")).toContainText("/s");
     const formatted = dialog.locator(".artifact-markdown");
     await expect(formatted.getByRole("heading", { name: "文件标题" })).toBeVisible({ timeout: 30000 });
-    await expect(formatted.getByRole("table")).toHaveCount(1);
-    await expect(formatted.locator("pre code")).toHaveText("const value = 1;\n");
-    await expect(formatted.locator("a,img,script")).toHaveCount(0);
+    await checkAttachmentExamples(formatted);
+    await expect(formatted.locator("pre code").first()).toHaveText("const value = 1;\n");
+    await expect(formatted.locator("a,img:not(.attachment-diagram img),script")).toHaveCount(0);
     await expect(formatted).not.toContainText("截断之后");
-    await expect(dialog.locator(".file-warning")).toContainText("10000");
+    await expect(dialog.locator(".file-warning").first()).toContainText("10000");
     const renderedReads = reads;
     const raw = dialog.getByRole("button", { name: "原始文本" });
     const markdown = dialog.getByRole("button", { name: "Markdown" });
@@ -216,7 +218,7 @@ test("环境文件弹窗、分块进度、文本图片视频预览、下载与�
     await expect(raw).toHaveAttribute("aria-pressed", "true");
     await expect(dialog.locator(".file-line")).toHaveCount(10000);
     await expect(dialog.locator(".file-line code").first()).toHaveText("# 文件标题");
-    await expect(dialog.locator(".file-warning")).toContainText("10000");
+    await expect(dialog.locator(".file-warning").first()).toContainText("10000");
     await expect(dialog.getByLabel("文本预览")).toBeVisible();
     const selected = dialog.locator(".file-line.selected");
     await expect(selected.locator("span")).toHaveText("30");
@@ -316,7 +318,7 @@ test("环境文件弹窗、分块进度、文本图片视频预览、下载与�
     await expect(
       dialog.getByRole("button", { name: "预览", exact: true }),
     ).toBeDisabled();
-    await expect(dialog.locator(".file-warning")).toHaveText(
+    await expect(dialog.locator(".file-warning").first()).toHaveText(
       "格式不支持，请下载后查看",
     );
     for (const theme of ["light", "dark", "bug"]) {
@@ -324,7 +326,7 @@ test("环境文件弹窗、分块进度、文本图片视频预览、下载与�
         (t) => document.documentElement.setAttribute("data-theme", t),
         theme,
       );
-      await expect(dialog.locator(".file-warning")).toBeVisible();
+      await expect(dialog.locator(".file-warning").first()).toBeVisible();
       const fits = await dialog.evaluate(
         (e) =>
           e.getBoundingClientRect().width <= innerWidth &&
@@ -377,6 +379,8 @@ test("环境文件弹窗、分块进度、文本图片视频预览、下载与�
       await page.getByRole("button", { name: "阶段文档" }).click();
       await dialog.getByRole("button", { name: "Preview", exact: true }).click();
       await expect(formatted.getByRole("heading")).toHaveText("文件标题");
+      await checkAttachmentExamples(formatted);
+      await expect(formatted.locator(".file-warning").first()).toContainText("Cannot display");
       await expect(markdown).toHaveAttribute("aria-pressed", "true");
       await dialog.getByRole("button", { name: "Raw text" }).tap();
       await expect(dialog.getByLabel("Text preview")).toBeVisible();

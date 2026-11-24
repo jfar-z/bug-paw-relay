@@ -7,7 +7,7 @@ import React, {
   type ReactNode,
 } from "react";
 import { Search, ChevronDown, CircleAlert, Copy } from "lucide-react";
-import type { Components } from "react-markdown";
+import type { Components, ExtraProps } from "react-markdown";
 import {
   Button as BaseButton,
   Select as BaseSelect,
@@ -120,14 +120,8 @@ export function IconButton({
     </span>
   );
 }
-/** 代码块共用语言与复制栏；视觉折行不进入剪贴板。 */
-export const MarkdownCodeBlock: NonNullable<Components["pre"]> = ({
-  children,
-  node,
-}) => {
-  useLocale();
-  const content = useRef<HTMLPreElement>(null);
-  const [result, setResult] = useState<"copied" | "failed">();
+/** Markdown 解析器提供的代码原文不包含围栏，保留缩进和末尾换行。 */
+export function markdownCodeContent(node: ExtraProps["node"]) {
   const code = node?.children[0];
   const classes =
     code?.type === "element" ? code.properties.className : undefined;
@@ -137,9 +131,30 @@ export const MarkdownCodeBlock: NonNullable<Components["pre"]> = ({
       )
     : undefined;
 
+  const text = code?.type === "element" && code.children[0];
+  return {
+    language: typeof language === "string" ? language.slice("language-".length) : "",
+    source: text && text.type === "text" ? text.value : "",
+  };
+}
+
+/** 代码块共用语言与复制栏；视觉折行不进入剪贴板。 */
+export const MarkdownCodeBlock: NonNullable<Components["pre"]> = ({ children, node }) => {
+  return <CodeBlockFrame {...markdownCodeContent(node)}>
+    <pre>{children}</pre>
+  </CodeBlockFrame>;
+};
+
+/** 工具栏与复制反馈独立于代码正文的展示形式。 */
+export function CodeBlockFrame({ children, source, language }: {
+  children: ReactNode; source: string; language: string;
+}) {
+  useLocale();
+  const [result, setResult] = useState<"copied" | "failed">();
+
   async function copy() {
     try {
-      await navigator.clipboard.writeText(content.current?.textContent ?? "");
+      await navigator.clipboard.writeText(source);
       setResult("copied");
     } catch {
       setResult("failed");
@@ -150,9 +165,7 @@ export const MarkdownCodeBlock: NonNullable<Components["pre"]> = ({
     <div className="markdown-code-block">
       <div className="markdown-code-toolbar">
         <span>
-          {typeof language === "string"
-            ? language.slice("language-".length)
-            : t("web.plainTextCode")}
+          {language || t("web.plainTextCode")}
         </span>
         <Button
           variant="ghost"
@@ -164,14 +177,14 @@ export const MarkdownCodeBlock: NonNullable<Components["pre"]> = ({
           <Copy aria-hidden="true" />
         </Button>
       </div>
-      <pre ref={content}>{children}</pre>
+      {children}
       <div className="markdown-code-feedback" role="status">
         {result &&
           t(result === "copied" ? "web.codeCopied" : "web.codeCopyFailed")}
       </div>
     </div>
   );
-};
+}
 /** 标准字段关联帮助与错误；多控件分组应另用 fieldset，不能嵌套 label。 */
 export function FormField({
   label,

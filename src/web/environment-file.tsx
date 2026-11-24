@@ -5,10 +5,10 @@ import {
   type UiFeedback,
 } from "./locale.js";
 import { t as tr, useLocale, currentLocale, displayError } from "./locale.js";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Modal, Button, ErrorBox, MarkdownCodeBlock, Sections } from "./ui/index.js";
+import { Modal, Button, ErrorBox, Sections } from "./ui/index.js";
 import {
   classifyFileLink,
   previewLimits,
@@ -21,7 +21,18 @@ import {
   formatBytes,
   type TransferProgress,
 } from "./file-transfer.js";
+import { AttachmentCode } from "./attachment-code.js";
 import "./ui/environment-file.css";
+/** 稳定表格组件身份，让会话刷新时保留键盘焦点和横向滚动位置。 */
+const attachmentComponents: Components = {
+  pre: AttachmentCode,
+  table: ({ children }) => (
+    <div className="markdown-table" tabIndex={0}><table>{children}</table></div>
+  ),
+  a: ({ children }) => <span>{children}</span>,
+  img: () => null,
+};
+
 /** 文件查看复用公共弹窗，信息、传输和预览均保留明确的关闭与错误出口。 */
 export function EnvironmentFile({
   sessionId,
@@ -401,11 +412,7 @@ export function EnvironmentFile({
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
                   skipHtml
-                  components={{
-                    pre: MarkdownCodeBlock,
-                    a: ({ children }) => <span>{children}</span>,
-                    img: () => null,
-                  }}
+                  components={attachmentComponents}
                 >
                   {visibleLines.join("\n")}
                 </ReactMarkdown>

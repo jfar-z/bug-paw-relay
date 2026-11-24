@@ -1325,6 +1325,10 @@ export const webMessages = {
     "zh-CN": "文本行数过多，仅显示前 10000 行，请下载查看完整内容",
     en: "Too many lines. Only the first 10,000 are shown; download for the full content.",
   },
+  "web.diagramUnavailable": {
+    "zh-CN": "无法显示此图。请检查流程图或时序图语法，下方保留了源码。",
+    en: "Cannot display this diagram. Check the flowchart or sequence diagram syntax. The source is shown below.",
+  },
   "web.previewMode": {
     "zh-CN": "预览模式",
     en: "Preview mode",

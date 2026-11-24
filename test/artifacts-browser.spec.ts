@@ -1,3 +1,4 @@
+import { attachmentExamples, checkAttachmentExamples, flow, invalid } from "./attachment-markdown-fixture.js";
 import { test, expect } from "@playwright/test";
 import { mkdtemp, mkdir, writeFile, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -18,8 +19,9 @@ test("阶段产物开关持久化、离线交接预览下载、HTML 隔离与手
   const root = join(dir, "root");
   await mkdir(root);
   const codeBody = "  " + JSON.stringify({ url: "https://example.com/" + "abc".repeat(160) }) + "\n\n";
-  await writeFile(join(root, "report.md"), "# 交付报告\n\n**已完成**\n\n" +
-    "```json\n" + codeBody + "```\n");
+  const report = "# 交付报告\n\n**已完成**\n\n" +
+    "```json\n" + codeBody + "```\n\n" + attachmentExamples;
+  await writeFile(join(root, "report.md"), report);
   await writeFile(join(root, "report.txt"), codeBody);
   await writeFile(
     join(root, "report.html"),
@@ -59,6 +61,7 @@ test("阶段产物开关持久化、离线交接预览下载、HTML 隔离与手
   const { app, store, service, artifacts } = await createApp(appOptions);
   try {
     store.put("users", { username: "fixture" }, "owner");
+    service.saveLanguage({ preference: "zh-CN" });
     const cookie = randomUUID();
     store.db
       .prepare("INSERT INTO auth_sessions VALUES(?,?,?)")
@@ -178,13 +181,26 @@ test("阶段产物开关持久化、离线交接预览下载、HTML 隔离与手
       await expect(
         file.getByRole("heading", { name: "交付报告" }),
       ).toBeVisible();
-      const code = file.locator(".markdown-code-block");
+      await checkAttachmentExamples(file.locator(".artifact-markdown"));
+      await file.locator(".attachment-diagram").first().screenshot({
+        path: `.vibe/artifacts/flow-${width}.png`,
+      });
+      const blocks = file.locator(".markdown-code-block");
+      const diagramBlocks = blocks.filter({ has: page.getByText("mermaid", { exact: true }) });
+      for (const [index, source] of [[0, flow], [2, invalid]] as const) {
+        await diagramBlocks.nth(index).getByRole("button").tap();
+        expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(source + "\n");
+      }
+      const code = blocks.first();
       await expect(code.getByText("json", { exact: true })).toBeVisible();
       expect(await code.locator("pre").textContent()).toBe(codeBody);
       expect(await code.locator("pre").evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
       await code.getByRole("button", { name: "复制代码" }).tap();
       await expect(code.getByRole("status")).toHaveText("已复制代码");
       expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(codeBody);
+      const savedReport = page.waitForEvent("download");
+      await file.getByRole("button", { name: "下载", exact: true }).click();
+      expect(await readFile((await (await savedReport).path())!, "utf8")).toBe(report);
       await file.getByRole("button", { name: "关闭", exact: true }).click();
 
       await page.getByRole("button", { name: "查看产物 report.txt", exact: true }).click();

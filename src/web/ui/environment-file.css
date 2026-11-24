@@ -138,3 +138,27 @@
   overflow: auto;
   overflow-wrap: anywhere;
 }
+
+/* 宽表、框线字符画与图形各自滚动，保留弹窗的可用宽度。 */
+.artifact-markdown { min-width: 0; }
+.artifact-markdown .markdown-table :is(th, td) { border-color: var(--border-strong); }
+.artifact-markdown .attachment-scroll { overflow-x: auto; }
+.artifact-markdown pre.attachment-ascii,
+.artifact-markdown .attachment-ascii code { white-space: pre; overflow-wrap: normal; word-break: normal; }
+.attachment-diagram { padding: 8px 12px 12px; }
+.attachment-diagram img { display: block; max-width: none; background: white; border-radius: 4px; }
+:root[data-theme="dark"] .attachment-diagram img { filter: invert(1); }
+.attachment-render-frame {
+  position: fixed;
+  inset: 0 auto auto 0;
+  visibility: hidden;
+  pointer-events: none;
+  border: 0;
+}
+.artifact-markdown .hljs-keyword,
+.artifact-markdown .hljs-attr { color: var(--accent-strong); font-weight: 700; }
+.artifact-markdown .hljs-string,
+.artifact-markdown .hljs-built_in { color: var(--focus); }
+.artifact-markdown .hljs-number,
+.artifact-markdown .hljs-literal { color: var(--text-primary); font-weight: 700; }
+.artifact-markdown .hljs-comment { color: var(--text-secondary); font-style: italic; }
