@@ -92,7 +92,6 @@ test("桌面与移动端真实业务操作、统一控件和 PWA", async ({ page
     ).toBeVisible();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "bug");
     await page.getByRole("button", { name: "会话", exact: true }).click();
-    await page.getByRole("button", { name: "会话列表", exact: true }).click();
     await page.getByRole("button", { name: "项目管理", exact: true }).click();
     await page.getByRole("button", { name: "新建项目", exact: true }).click();
     await page.getByLabel("名称", { exact: true }).fill("浏览器测试项目");
@@ -674,7 +673,6 @@ test("客户端新增根目录自动保存并同步到服务端项目选择器",
       .click();
     await server.getByRole("button", { name: "登录", exact: true }).click();
     await server.getByRole("button", { name: "会话", exact: true }).click();
-    await server.getByRole("button", { name: "会话列表", exact: true }).click();
     await server.getByRole("button", { name: "项目管理", exact: true }).click();
     await server.getByRole("button", { name: "新建项目", exact: true }).click();
     await server.getByLabel("名称", { exact: true }).fill("第二根目录项目");
@@ -1265,7 +1263,8 @@ test("工作台活动收起、压缩居中、归档删除与全宽滚动", async
     await page.evaluate((id) => {
       location.hash = "workbench/" + id;
     }, session.id);
-    await expect(page.locator(".chat-heading h2")).toBeVisible();
+    // 路由切换后等待目标会话标题，避免读取空态标题。
+    await expect(page.locator(".chat-heading h2")).toHaveText("活动与归档验证");
     await checkLongChatTitle(page);
     const summary = page.locator(".workbench-activity-summary");
     await expect(summary).toHaveAttribute("aria-expanded", "true");
@@ -1571,7 +1570,7 @@ test("横屏一级导航收起与竖屏恢复", async ({ page }) => {
       );
       await expect(page.locator(".drawer-shade")).toBeHidden();
       await expect(page.locator(".rail")).not.toHaveAttribute("role", "dialog");
-      for (const theme of ["dark", "bug", "light"]) {
+      for (const theme of ["light", "dark", "bug"]) {
         await page.locator(".theme-cycle").click();
         await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
       }
@@ -2061,7 +2060,7 @@ test("主导航本地记忆与存储异常", async ({ page, context }) => {
       await page.getByRole("button", { name, exact: true }).click();
       expect(await saved()).toBe("true");
     }
-    for (const theme of ["dark", "bug", "light"]) {
+    for (const theme of ["light", "dark", "bug"]) {
       await page.locator(".theme-cycle").click();
       await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
       expect(await saved()).toBe("true");

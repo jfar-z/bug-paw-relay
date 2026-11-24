@@ -244,7 +244,6 @@ test("适用 CLI 配置、新建会话、会话切换与看板过滤", async ({
     await expect(page.getByRole("option").first()).toHaveAccessibleName("Codex 专用");
     await page.keyboard.press("Escape");
     await page.setViewportSize({ width: 1440, height: 1000 });
-    await page.getByRole("button", { name: "会话列表", exact: true }).click();
     await page.getByRole("button", { name: "新建会话：多目录", exact: true }).click();
     const menu = page.getByRole("option");
     for (const [index, label] of [`同名 · ${twins[1].id}`, "Codex 专用", `同名 · ${twins[0].id}`, "通用智能体"].entries())

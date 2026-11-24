@@ -38,6 +38,7 @@ import { WorkbenchActivityGroup } from "./workbench-content.js";
 import { WorkbenchMarkdown } from "./workbench-content.js";
 import { EnvironmentFile } from "./environment-file.js";
 import { SessionCard, SessionBatch } from "./session-management.js";
+import { createPortal } from "react-dom";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import {
   MoreHorizontal,
@@ -235,7 +236,7 @@ export function Sessions({
   const [commandError, setCommandError] = useState<UiFeedback>("");
   const [mentions, setMentions] = useState<Mention[]>([]);
   const [configuring, setConfiguring] = useState(false);
-  const [list, setList] = useState(false);
+  const [list, setList] = useState(!selected);
   const [busy, setBusy] = useState(false);
   const [fileHref, setFileHref] = useState("");
   const fileSession = useRef("");
@@ -273,7 +274,7 @@ export function Sessions({
     setConfiguring(false);
     setBusy(false);
     setAnswer(null);
-    if (!selected || matchMedia("(max-width: 759px)").matches) setList(false);
+    setList(!selected);
     follow.current = true;
     if (!session || native) return;
     let cancelled = false;
@@ -479,7 +480,7 @@ export function Sessions({
       if (result.claudeMode === "environment") setAutoTerminal(result.id);
       await action(async () => {});
       location.hash = "chat/" + result.id;
-      if (matchMedia("(max-width: 759px)").matches) setList(false);
+      setList(false);
     } catch (e) {
       setError(caughtFeedback(e as Error));
     } finally {
@@ -782,8 +783,11 @@ export function Sessions({
     if (!movedMenu.current) return;
     const row = document.getElementById("session-row-" + movedMenu.current);
     // 行跨组重建后恢复菜单焦点；用户已转移焦点时保留其当前位置。
-    if (list && document.activeElement === document.body && row?.getClientRects().length) {
-      row.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')?.focus();
+    if (row && document.activeElement === document.body) {
+      // 取消置顶后项目可能收起，将焦点交还给可见的项目标题。
+      const target = row.closest("details:not([open])")?.querySelector("summary")
+        ?? row.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]');
+      target?.focus();
     }
     movedMenu.current = "";
   }, [state.sessions, list]);
@@ -822,7 +826,7 @@ export function Sessions({
       }
       onOpen={() => {
         location.hash = "chat/" + s.id;
-        if (matchMedia("(max-width: 759px)").matches) setList(false);
+        setList(false);
       }}
       onSelect={() => {
         setSelecting(true);
@@ -922,7 +926,7 @@ export function Sessions({
               [...choices.values()].flatMap((choice) => [...choice.targets]),
             );
             return (
-              <details className="project-group" key={p.id} open>
+              <details className="project-group" key={p.id}>
                 <summary>
                   <Folder size={15} />
                   <strong>{p.name}</strong>
@@ -958,7 +962,8 @@ export function Sessions({
                     />
                   )}
                 </summary>
-                {emptyProject === p.id && !choices.size && (
+                {/* 项目收起时仍需显示从标题按钮打开的提示。 */}
+                {emptyProject === p.id && !choices.size && createPortal(
                   <Modal
                     title={tr("web.newSession")}
                     onClose={() => setEmptyProject("")}
@@ -988,7 +993,8 @@ export function Sessions({
                         </Button>
                       </>
                     )}
-                  </Modal>
+                  </Modal>,
+                  document.body,
                 )}
                 {needsAgent && (
                   <p>

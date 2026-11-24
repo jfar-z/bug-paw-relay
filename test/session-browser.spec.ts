@@ -101,7 +101,9 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
     // 空态入口必须位于顶部左侧，并能打开和关闭会话抽屉。
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(base + "/#chat");
-    await expect(page.locator(".session-list")).toBeHidden();
+    await page
+      .getByRole("button", { name: "关闭会话列表", exact: true })
+      .click();
     const entry = page.getByRole("button", { name: "会话列表", exact: true });
     await expect(entry).toBeVisible();
     const entryBox = (await entry.boundingBox())!;
@@ -111,6 +113,7 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
     await entry.click();
     const drawer = page.locator(".session-list");
     await expect(drawer).toBeVisible();
+    await drawer.locator(".project-group summary").first().click();
     // 缩短视口让真实会话行溢出，斜向滚动后列表只能上下移动。
     await page.setViewportSize({ width: 320, height: 220 });
     await expect(drawer).toHaveCSS("touch-action", "pan-y pinch-zoom");
@@ -899,6 +902,7 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
       ),
     ).toBe(true);
     await page.getByRole("button", { name: "会话列表", exact: true }).click();
+    await page.locator(".project-group:not([open]) summary").first().click();
     await checkSessionDrawer(page, "会话列表");
     const card = page.locator(".session-entry > .session").first();
     // 单行列表隐藏附加信息，状态保留可访问名称，移动端行高不超过触控目标。
@@ -987,7 +991,6 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
     store.remove("agents", initialAgent.id);
     store.remove("agents", configAgent.id);
     await page.reload();
-    await page.getByRole("button", { name: "会话列表", exact: true }).click();
     const newSession = page.getByRole("button", {
       name: "新建会话：测试项目",
       exact: true,
@@ -1057,7 +1060,6 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
       updated.version,
     );
     await page.reload();
-    await page.getByRole("button", { name: "会话列表", exact: true }).click();
     const trigger = page.getByRole("button", {
       name: "新建会话：测试项目",
       exact: true,
@@ -1176,7 +1178,6 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
           "data-theme",
           theme,
         );
-        await phone.getByRole("button", { name: "Session list", exact: true }).tap();
         await phone.getByRole("button", { name: /New session:.*单目标/ }).tap();
         const option = phone.getByRole("option", {
           name: longName,
@@ -1216,7 +1217,6 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
       await expect(phone.getByRole("option", { name: "Auto-approve" })).toHaveAttribute("aria-selected", "true");
       await phone.keyboard.press("Escape");
       await phone.goto(base + "/#chat");
-      await phone.getByRole("button", { name: "Session list", exact: true }).tap();
       const projectTrigger = phone.getByRole("button", {
         name: /New session:.*测试项目/,
       });
@@ -1331,7 +1331,6 @@ test("会话按用户消息排序且最近工作标题单行省略", async ({ pa
       "工作台新会话",
     );
     await page.goto(base + "/#chat");
-    await page.getByRole("button", { name: "会话列表", exact: true }).click();
     await expect(page.locator(".project-group summary strong")).toHaveText([
       first.name,
       second.name,
@@ -1559,7 +1558,6 @@ test("会话项目紧凑分组与手动排序", async ({ browser }) => {
       .run(digest(cookie), "owner", Date.now() + 600000);
     await context.addCookies([{ name: "relay_session", value: cookie, url: base }]);
     await page.goto(base + "/#chat");
-    await page.getByRole("button", { name: "会话列表", exact: true }).click();
   };
   store.put("users", { username: "fixture" }, "owner");
   try {
@@ -1571,7 +1569,7 @@ test("会话项目紧凑分组与手动排序", async ({ browser }) => {
     expect(initialSessions).toHaveLength(2);
     for (const width of [1440, 390]) {
       await page.setViewportSize({ width, height: 844 });
-      for (const expanded of [true, false]) {
+      for (const expanded of [false, true]) {
         const geometry = await groups.evaluateAll((items) => items.map((item) => {
           const group = item.getBoundingClientRect();
           const heading = item.querySelector("summary")!.getBoundingClientRect();
@@ -1644,7 +1642,6 @@ test("会话项目紧凑分组与手动排序", async ({ browser }) => {
     await expect(page.getByRole("option")).toHaveText(["全部项目", ...sorted]);
     await page.keyboard.press("Escape");
     await page.reload();
-    await page.getByRole("button", { name: "会话列表", exact: true }).click();
     await expect(groupNames).toHaveText(sorted);
     await page.goto("about:blank");
     await context.clearCookies();
@@ -1673,7 +1670,6 @@ test("会话项目紧凑分组与手动排序", async ({ browser }) => {
         service.saveLanguage({ preference: locale });
         await page.evaluate((theme) => localStorage.setItem("relay-theme", theme), theme);
         await page.reload();
-        await page.getByRole("button", { name: locale === "en" ? "Session list" : "会话列表", exact: true }).tap();
         const managementLabel = locale === "en" ? "Project management" : "项目管理";
         await page.getByRole("button", { name: managementLabel, exact: true }).tap();
         const modal = page.getByRole("dialog", { name: managementLabel });
@@ -1732,12 +1728,17 @@ test("环境会话置顶与取消置顶", async ({ browser }) => {
     const button = (name: string) => page.getByRole("button", { name, exact: true });
     const menu = (name: string) => page.getByRole("menuitem", { name, exact: true });
     const pinned = sidebar.getByRole("region", { name: "置顶" });
-    await expect(sidebar).toBeHidden();
-    await button("会话列表").press("Enter");
+    await expect(sidebar).toBeVisible();
+    const groupA = sidebar.locator(".project-group").filter({ has: page.getByText("A", { exact: true }) });
+    const groupB = sidebar.locator(".project-group").filter({ has: page.getByText("B", { exact: true }) });
+    await expect(sidebar.locator(".project-group[open]")).toHaveCount(0);
+    await groupA.locator("summary").press("Enter");
+    await expect(groupB).not.toHaveAttribute("open");
     await button("会话操作：Alpha").press("Enter");
     await menu("置顶").press("Enter");
     await expect(pinned.locator(".session-entry strong")).toHaveText(["Alpha"]);
     await expect(button("会话操作：Alpha")).toBeFocused();
+    await groupB.locator("summary").click();
     await button("会话操作：Beta").click();
     await menu("置顶").click();
     await expect(pinned.locator(".session-entry strong")).toHaveText(["Beta", "Alpha"]);
@@ -1779,7 +1780,10 @@ test("环境会话置顶与取消置顶", async ({ browser }) => {
     await button("Session actions:Alpha").tap();
     await menu("Unpin").tap();
     await expect(englishPins.locator(".session-entry strong")).toHaveText(["Beta"]);
-    await expect(sidebar.locator(".project-group .session-entry strong")).toHaveText(["Alpha"]);
+    await expect(groupA).not.toHaveAttribute("open");
+    await expect(groupA.locator("summary")).toBeFocused();
+    await groupA.locator("summary").tap();
+    await expect(groupA.getByTitle("Alpha", { exact: true })).toBeVisible();
     await expect(page).toHaveURL(config.publicUrl + "/#chat/" + first.id);
     await englishPins.getByTitle("Beta", { exact: true }).tap();
     await expect(sidebar).toBeHidden();

@@ -165,7 +165,6 @@ test("环境编码工具启停按环境隔离，旧表单由服务端拒绝", as
     const api = `/api/environments/${env.id}/runtime-settings`;
     const oldPage = await second.newPage();
     await oldPage.goto(base + "/#chat");
-    await oldPage.getByRole("button", { name: "会话列表", exact: true }).click();
     const staleState = await (
       await second.request.get(base + "/api/state")
     ).json();
@@ -274,7 +273,6 @@ test("环境编码工具启停按环境隔离，旧表单由服务端拒绝", as
     expect(blockedSend.status()).toBe(409);
     expect((await blockedSend.json()).code).toBe("CLI_DISABLED");
     await oldPage.reload();
-    await oldPage.getByRole("button", { name: "会话列表", exact: true }).click();
     await oldPage
       .getByRole("button", { name: /新建会话.*Fixture project/ })
       .click();
@@ -353,7 +351,6 @@ test("环境编码工具启停按环境隔离，旧表单由服务端拒绝", as
       page.getByRole("button", { name: "启用 Claude Code", exact: true }),
     ).toBeVisible();
     await oldPage.goto(base + "/#chat");
-    await oldPage.getByRole("button", { name: "会话列表", exact: true }).click();
     await oldPage
       .getByRole("button", { name: /新建会话.*Fixture project/ })
       .click();
