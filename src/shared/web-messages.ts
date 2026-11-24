@@ -1325,6 +1325,18 @@ export const webMessages = {
     "zh-CN": "文本行数过多，仅显示前 10000 行，请下载查看完整内容",
     en: "Too many lines. Only the first 10,000 are shown; download for the full content.",
   },
+  "web.previewMode": {
+    "zh-CN": "预览模式",
+    en: "Preview mode",
+  },
+  "web.markdownMode": {
+    "zh-CN": "Markdown",
+    en: "Markdown",
+  },
+  "web.rawText": {
+    "zh-CN": "原始文本",
+    en: "Raw text",
+  },
   "web.textPreview": {
     "zh-CN": "文本预览",
     en: "Text preview",

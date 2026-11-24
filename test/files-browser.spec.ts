@@ -9,6 +9,8 @@ import {
   EnvironmentFiles,
   normalizeEnvironmentFilePath,
 } from "../src/connector/files.js";
+test.use({ hasTouch: true });
+
 /** 真实页面、HTTP 和磁盘读取；人工延迟确保进度和取消可观察。 */
 test("环境文件弹窗、分块进度、文本图片视频预览、下载与手机红字提示", async ({
   page,
@@ -18,11 +20,20 @@ test("环境文件弹窗、分块进度、文本图片视频预览、下载与�
   const root = join(dir, "files");
   await mkdir(root);
   const longLine = "  环境文件内容 /workspace/" + "LongPath".repeat(55);
-  const content =
-    "环境文件内容 — <script>alert('unsafe')</script>\n".repeat(29) +
-    longLine + "\n\n" +
-    "环境文件内容 — <script>alert('unsafe')</script>\n".repeat(7000);
+  const sample = [
+    "# 文件标题", "", "| 列 |", "| --- |", "| 值 |", "",
+    "```js", "const value = 1;", "```", "", "- 列表与 `code`",
+    "[文字](https://example.invalid/link)", "![图片](https://example.invalid/image)",
+    "<script>window.previewExecuted = true</script>",
+  ];
+  const content = sample.join("\n") + "\n".repeat(30 - sample.length) +
+    longLine + "\n\n" + "正文内容 ".repeat(30000) + "\n".repeat(10000) + "截断之后";
   await writeFile(join(root, "报告 文件.md"), content);
+  await writeFile(join(root, "README.MD"), sample.join("\n"));
+  await writeFile(join(root, "notes.txt"), "# 普通文本");
+  await writeFile(join(root, "empty.md"), "");
+  await writeFile(join(root, "bad.md"), Buffer.from([0xff]));
+  await writeFile(join(root, "large.md"), Buffer.alloc(2 * 1024 ** 2 + 1));
   await writeFile(join(root, "archive.zip"), "unsupported");
   await writeFile(join(root, "empty.txt"), "");
   await writeFile(
@@ -58,7 +69,7 @@ test("环境文件弹窗、分块进度、文本图片视频预览、下载与�
   });
   let reads = 0,
     slow = false;
-  const reply = `\n\`\`\`js\n${longLine}\n\`\`\`\n\n[Windows 原路径](F:%5Ccodex-hir-test-20261111.txt) · [Windows URL 路径](/F:/codex-hir-test-20261111.txt%3A12)\n\n[文本产物](<./报告 文件.md#L30>)\n\n[图片产物](image.png) · [视频产物](movie.webm) · [压缩包](archive.zip) · [空文件](empty.txt) · [不存在](missing.txt) · [普通网页](https://example.com/document.pdf)\n\n[危险链接](javascript:alert(1))`;
+  const reply = `\n\`\`\`js\n${longLine}\n\`\`\`\n\n[Windows 原路径](F:%5Ccodex-hir-test-20261111.txt) · [Windows URL 路径](/F:/codex-hir-test-20261111.txt%3A12)\n\n[文本产物](<./报告 文件.md#L30>)\n\n[阶段文档](README.MD) · [纯文本](notes.txt) · [空文档](empty.md) · [编码错误](bad.md) · [超限文档](large.md) · [图片产物](image.png) · [视频产物](movie.webm) · [压缩包](archive.zip) · [空文件](empty.txt) · [不存在](missing.txt) · [普通网页](https://example.com/document.pdf)\n\n[危险链接](javascript:alert(1))`;
   const peer = {
     call: async (m: string, p: any) => {
       if (m === "session.history")
@@ -84,6 +95,7 @@ test("环境文件弹窗、分块进度、文本图片视频预览、下载与�
         );
         p = { ...p, source: { ...p.source, path: join(root, "报告 文件.md") } };
       }
+      if (m.startsWith("execution.")) return { status: "running", stateVersion: 1 };
       return reader.call(m, p);
     },
     close: () => {},
@@ -116,6 +128,10 @@ test("环境文件弹窗、分块进度、文本图片视频预览、下载与�
   await context.addCookies([
     { name: "relay_session", value: cookie, url: base },
   ]);
+  const external: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().startsWith("https://example.invalid/")) external.push(request.url());
+  });
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   try {
@@ -183,6 +199,24 @@ test("环境文件弹窗、分块进度、文本图片视频预览、下载与�
     await dialog.getByRole("button", { name: "预览", exact: true }).click();
     await expect(dialog.getByLabel("文件传输进度")).toBeVisible();
     await expect(dialog.locator(".file-progress")).toContainText("/s");
+    const formatted = dialog.locator(".artifact-markdown");
+    await expect(formatted.getByRole("heading", { name: "文件标题" })).toBeVisible({ timeout: 30000 });
+    await expect(formatted.getByRole("table")).toHaveCount(1);
+    await expect(formatted.locator("pre code")).toHaveText("const value = 1;\n");
+    await expect(formatted.locator("a,img,script")).toHaveCount(0);
+    await expect(formatted).not.toContainText("截断之后");
+    await expect(dialog.locator(".file-warning")).toContainText("10000");
+    const renderedReads = reads;
+    const raw = dialog.getByRole("button", { name: "原始文本" });
+    const markdown = dialog.getByRole("button", { name: "Markdown" });
+    await expect(markdown).toHaveAttribute("aria-pressed", "true");
+    await raw.focus();
+    await page.keyboard.press("Enter");
+    await expect(raw).toBeFocused();
+    await expect(raw).toHaveAttribute("aria-pressed", "true");
+    await expect(dialog.locator(".file-line")).toHaveCount(10000);
+    await expect(dialog.locator(".file-line code").first()).toHaveText("# 文件标题");
+    await expect(dialog.locator(".file-warning")).toContainText("10000");
     await expect(dialog.getByLabel("文本预览")).toBeVisible();
     const selected = dialog.locator(".file-line.selected");
     await expect(selected.locator("span")).toHaveText("30");
@@ -206,6 +240,11 @@ test("环境文件弹窗、分块进度、文本图片视频预览、下载与�
     await page.setViewportSize({ width: 1440, height: 1000 });
     expect(reads).toBeGreaterThan(1);
     await page.screenshot({ path: ".vibe/files-desktop.png" });
+    await markdown.tap();
+    await expect(formatted).toBeVisible();
+    expect(reads).toBe(renderedReads);
+    expect(external).toEqual([]);
+    expect(await page.evaluate(() => "previewExecuted" in window)).toBe(false);
     const saved = page.waitForEvent("download");
     await dialog.getByRole("button", { name: "下载", exact: true }).click();
     const download = await saved;
@@ -299,6 +338,50 @@ test("环境文件弹窗、分块进度、文本图片视频预览、下载与�
     await page.getByRole("button", { name: "空文件", exact: true }).click();
     await dialog.getByRole("button", { name: "预览", exact: true }).click();
     await expect(dialog.getByLabel("文本预览")).toBeVisible();
+    await expect(dialog.getByRole("group", { name: "预览模式" })).toHaveCount(0);
+    for (const [label, message] of [
+      ["纯文本", "# 普通文本"], ["编码错误", "编码"], ["超限文档", "预览上限"],
+    ]) {
+      await page.keyboard.press("Escape");
+      await page.getByRole("button", { name: label, exact: true }).click();
+      const preview = dialog.getByRole("button", { name: "预览", exact: true });
+      if (label === "超限文档") await expect(preview).toBeDisabled();
+      else await preview.click();
+      await expect(dialog).toContainText(message);
+      await expect(raw).toHaveCount(0);
+      await expect(dialog.getByRole("button", { name: "下载", exact: true })).toBeEnabled();
+    }
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "空文档" }).click();
+    await dialog.getByRole("button", { name: "预览", exact: true }).click();
+    await raw.tap();
+    await expect(dialog.locator(".file-line")).toHaveCount(1);
+    await page.keyboard.press("Escape");
+    // 从看板创建真实阶段会话，通过同一文件传输入口检查大写后缀和英文模式。
+    const stage = randomUUID(), done = randomUUID();
+    const board = service.save("boards", {
+      name: "文件预览", projectId: project.id, stages: [
+        { id: randomUUID(), fixedRole: "start", name: "开始", type: "human", targets: [stage] },
+        { id: stage, name: "执行", type: "agent", environmentId: env.id, rootId: "root",
+          agentId: session.agentId, targets: [done] },
+        { id: done, name: "完成", type: "done", targets: [] },
+      ],
+    });
+    const item = service.createItem({ boardId: board.id, startStageId: stage, title: "文档" });
+    const execution = service.execution(store.get("items", item.id).executionId);
+    service.saveLanguage({ preference: "en" });
+    await page.goto(base + "/#chat/" + execution.session_id);
+    await page.reload();
+    for (const theme of ["light", "dark", "bug"]) {
+      await page.evaluate((t) => document.documentElement.dataset.theme = t, theme);
+      await page.getByRole("button", { name: "阶段文档" }).click();
+      await dialog.getByRole("button", { name: "Preview", exact: true }).click();
+      await expect(formatted.getByRole("heading")).toHaveText("文件标题");
+      await expect(markdown).toHaveAttribute("aria-pressed", "true");
+      await dialog.getByRole("button", { name: "Raw text" }).tap();
+      await expect(dialog.getByLabel("Text preview")).toBeVisible();
+      await page.keyboard.press("Escape");
+    }
     expect(errors).toEqual([]);
   } finally {
     await context.close();

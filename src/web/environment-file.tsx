@@ -7,8 +7,8 @@ import {
 import { t as tr, useLocale, currentLocale, displayError } from "./locale.js";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Modal, Button, ErrorBox, MarkdownCodeBlock } from "./ui/index.js";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Modal, Button, ErrorBox, MarkdownCodeBlock, Sections } from "./ui/index.js";
 import {
   classifyFileLink,
   previewLimits,
@@ -49,6 +49,7 @@ export function EnvironmentFile({
   const [progress, setProgress] = useState<TransferProgress>();
   const [preparing, setPreparing] = useState(false);
   const [preview, setPreview] = useState<{ url?: string; text?: string }>();
+  const [rawText, setRawText] = useState(false);
   const [download, setDownload] = useState("");
   const controller = useRef<AbortController | null>(null);
   const urls = useRef<string[]>([]);
@@ -118,7 +119,10 @@ export function EnvironmentFile({
     : "";
   const pdf = extension === "pdf";
   const html = extension === "html" || extension === "htm";
-  const markdown = extension === "md";
+  // 会话文件使用票据中的最终文件名，交接产物仍按原始名称展示。
+  const sessionMarkdown = !artifactId && ticket?.kind === "text" &&
+    ticket.name.toLowerCase().endsWith(".md");
+  const markdown = extension === "md" || (sessionMarkdown && !rawText);
   let reason = "";
   if (ticket) {
     if (ticket.kind === "unsupported" && !pdf)
@@ -139,6 +143,7 @@ export function EnvironmentFile({
     controller.current = abort;
     setError("");
     setBusy(mode);
+    setRawText(false);
     setPreview(undefined);
     setDownload("");
     setPreparing(false);
@@ -236,6 +241,8 @@ export function EnvironmentFile({
   const line = classifyFileLink(href).line;
   const textPreview = useRef<HTMLDivElement>(null);
   const previewText = preview?.text;
+  const lines = useMemo(() => previewText?.split("\n", 10001), [previewText]);
+  const visibleLines = useMemo(() => lines?.slice(0, 10000), [lines]);
   useLayoutEffect(() => {
     const viewport = textPreview.current;
     const selected = viewport?.querySelector(".file-line.selected");
@@ -244,7 +251,7 @@ export function EnvironmentFile({
       viewport.scrollTop +=
         selected.getBoundingClientRect().top - viewport.getBoundingClientRect().top;
     }
-  }, [line, previewText]);
+  }, [line, previewText, markdown]);
   return (
     <Modal
       title={
@@ -353,23 +360,30 @@ export function EnvironmentFile({
                 。
               </p>
             )}
-            {preview?.text !== undefined &&
-              preview.text.split("\n").length > 10000 && (
+            {visibleLines && sessionMarkdown && (
+              <Sections
+                label={tr("web.previewMode")}
+                value={rawText ? "raw" : "markdown"}
+                onChange={(value) => setRawText(value === "raw")}
+                items={[
+                  { value: "markdown", label: tr("web.markdownMode") },
+                  { value: "raw", label: tr("web.rawText") },
+                ]}
+              />
+            )}
+            {lines && lines.length > 10000 && (
                 <p className="file-warning">
                   {tr("web.tooManyLinesOnlyTheFirst10000Are")}
                 </p>
               )}
-            {preview?.text !== undefined && !html && !markdown && (
+            {visibleLines && !html && !markdown && (
               <div
                 ref={textPreview}
                 className="file-text"
                 tabIndex={0}
                 aria-label={tr("web.textPreview")}
               >
-                {preview.text
-                  .split("\n")
-                  .slice(0, 10000)
-                  .map((text, index) => (
+                {visibleLines.map((text, index) => (
                     <div
                       key={index}
                       className={
@@ -382,7 +396,7 @@ export function EnvironmentFile({
                   ))}
               </div>
             )}
-            {preview?.text !== undefined && markdown && (
+            {visibleLines && markdown && (
               <div className="artifact-markdown">
                 <ReactMarkdown
                   remarkPlugins={[remarkGfm]}
@@ -393,7 +407,7 @@ export function EnvironmentFile({
                     img: () => null,
                   }}
                 >
-                  {preview.text.split("\n").slice(0, 10000).join("\n")}
+                  {visibleLines.join("\n")}
                 </ReactMarkdown>
               </div>
             )}
