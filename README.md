@@ -36,10 +36,10 @@
 
 ### 从 GHCR 拉取镜像
 
-使用 Docker 的 Linux/amd64 容器模式即可匿名拉取。下面的候选镜像对应源码提交 `42938c3`。可在 [GHCR 镜像页面](https://github.com/jfar-z/bug-paw-relay/pkgs/container/bug-paw-relay) 查看已发布的标签，当前没有 `latest` 标签。
+使用 Docker 的 Linux/amd64 容器模式即可匿名拉取。以下示例使用 `latest` 标签。如需固定部署版本，可在 [GHCR 镜像页面](https://github.com/jfar-z/bug-paw-relay/pkgs/container/bug-paw-relay) 查看摘要，并将 `RELAY_IMAGE` 设为 `ghcr.io/jfar-z/bug-paw-relay@sha256:<摘要值>`。
 
 ```sh
-export RELAY_IMAGE=ghcr.io/jfar-z/bug-paw-relay:candidate-45164829828-1
+export RELAY_IMAGE=ghcr.io/jfar-z/bug-paw-relay:latest
 docker pull "$RELAY_IMAGE"
 ```
 
