@@ -213,6 +213,8 @@ export class Service {
         // 仅向时间线提供历史身份，不传递职责、模型配置等执行参数。
         ...(typeof agentId === "string" ? { agent: { id: agentId, name: agentName || agentId } } : {}),
         ...(typeof boardIds === "string" ? { boardIds: JSON.parse(boardIds) } : {}) })),
+      // 环境账本中的审批事件仅含结构化标识，完整转发以保留长会话中的归属。
+      ...(history.autoApprovalEvents ? { autoApprovalEvents: history.autoApprovalEvents } : {}),
       ...(history.boardCards ? { boardCards: history.boardCards } : {}),
       // 问答契约是纯文本结构，必须逐字回显，不能套用工具日志的长编码裁剪。
       ...(history.questionRecords

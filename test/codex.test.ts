@@ -60,6 +60,7 @@ for (const mode of [
       let requests = 0;
       let captured: any;
       const events: any[] = [];
+      let approvedItemId: string | undefined;
       let nativeId = "";
       let finalStatus = "";
       let interactions = 0;
@@ -295,6 +296,7 @@ for (const mode of [
               if (!asyncQuestion) void submit();
             } else {
               assert.equal(method, "item/commandExecution/requestApproval");
+              approvedItemId = params.itemId;
               const policy = classifyApproval(method, params);
               assert.ok(policy);
               void answer(mode === "approval-auto" ? policy.answer : { decision: "accept" });
@@ -471,6 +473,13 @@ for (const mode of [
         );
         assert.ok(events.some((e) => e.type === "item/agentMessage/delta"));
         const history = await runtime.history();
+        if (approval) {
+          assert.ok(approvedItemId);
+          assert.ok(history.thread.turns.some((turn: any) => turn.items.some((item: any) =>
+            item.id === approvedItemId && item.type === "commandExecution")));
+          assert.ok(events.some(e => e.data.item?.id === approvedItemId &&
+            e.data.item.type === "commandExecution"));
+        }
         if (mode === "board") {
           const text = "@relay-fixture @Board 返回一行验证文本";
           const nativeText = "$relay-fixture @Board (boardId=selected-board) 返回一行验证文本";

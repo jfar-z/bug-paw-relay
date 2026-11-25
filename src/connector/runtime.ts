@@ -312,8 +312,11 @@ export class CodexRuntime implements RuntimeHandle {
         }
         this.hooks.interaction(String(m.id), m.method, m.params, (value) => {
           if (m.method !== "item/tool/requestUserInput") {
-            this.write({ id: m.id, result: value });
-            return;
+            // 管道写入失败时让调用方收到错误，避免留下成功审批记录。
+            return new Promise<void>((resolve, reject) => {
+              this.process.stdin.write(JSON.stringify({ id: m.id, result: value }) + "\n",
+                error => error ? reject(error) : resolve());
+            });
           }
           return new Promise<void>((resolve, reject) => {
             // 用户提问等待原生 resolved 回执；管道写入成功不等于工具已接收。
@@ -1030,7 +1033,9 @@ export class ClaudeRuntime implements RuntimeHandle {
               return;
             }
             context.signal.addEventListener("abort", abort, { once: true });
-            this.hooks.interaction(id, name, { input }, (answer) => {
+            // 缺少原生工具编号时，交互仍可答复，但不能把临时编号当作工具归属。
+            const params = context.toolUseID ? { input, itemId: context.toolUseID } : { input };
+            this.hooks.interaction(id, name, params, (answer) => {
               context.signal.removeEventListener("abort", abort);
               // PostToolUse 确认原调用已消费 updatedInput 后才返回已回答。
               const receipt =

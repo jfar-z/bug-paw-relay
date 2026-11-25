@@ -61,6 +61,41 @@ function fixture() {
   };
 }
 
+test("自动批准按原生调用编号落账，缓存淘汰、重复答复与失败均不增加批准次数", async () => {
+  const f = fixture();
+  try {
+    const ids = ["first", "second", "again", "manual", "failed", "legacy"];
+    const items = ids.map((id, index) => ({
+      id, nativeId: "rpc-" + id, method: "item/commandExecution/requestApproval",
+      params: id === "legacy" ? {} : { itemId: index === 1 ? "tool-b" : "tool-a", turnId: "turn" },
+      approval: { kind: "permission", answer: { decision: "accept" } },
+    }));
+    f.store.put("localExecutions", { interactions: items }, "one");
+    for (const { id } of items)
+      (f.engine as any).answers.set(id, async () => {
+        if (id === "failed") throw new Error("delivery failed");
+      });
+    const answer = (id: string) => f.engine.call("interaction.answer", {
+      executionId: "one", interactionId: id, answer: { decision: "accept" },
+      ...(id === "manual" ? {} : { decisionSource: "policy" }),
+    });
+    for (const id of ["second", "first", "again", "manual", "legacy"]) await answer(id);
+    await assert.rejects(answer("failed"), /delivery failed/);
+    await assert.rejects(answer("first"), (error: any) => error.code === "STALE_INTERACTION");
+    const live = f.seen.map(update => update.event).filter(event => event?.type === "relay/approval/auto");
+    assert.deepEqual(live.map(e => [e.data.interactionId, e.data.itemId]), [
+      ["second", "tool-b"], ["first", "tool-a"], ["again", "tool-a"], ["legacy", undefined],
+    ]);
+    for (let i = 0; i < 1000; i++) f.enqueue("one", "delta", {});
+    const history = await f.engine.call("session.history", { sessionId: "s-one" });
+    assert.ok(history.events.every((event: any) => event.type !== "relay/approval/auto"));
+    assert.deepEqual(history.autoApprovalEvents, live);
+    assert.deepEqual((await f.engine.call("session.history", { sessionId: "s-two" })).autoApprovalEvents, []);
+  } finally {
+    f.close();
+  }
+});
+
 test("批次减少写入，提交后按序通知，保留窗口和最终回复一致", async () => {
   const f = fixture();
   try {

@@ -346,6 +346,9 @@ export class Engine {
             executionId: key,
           };
           events.push(event);
+          // 自动批准是环境侧历史事实，随事件同事务落账，独立于有界补传缓存。
+          if (type === "relay/approval/auto")
+            (e.autoApprovalEvents ??= []).push(event);
           // 与原生事件同事务记录首个定位标识，缓存淘汰后仍可投影看板输入。
           if (e.boardInput && !e.boardInput.anchor) {
             const anchor = type === "turn/started" && data.turn?.id ? "turn:" + data.turn.id
@@ -401,6 +404,7 @@ export class Engine {
           "localExecutions",
           {
             ...(e.boardInput ? { boardInput: e.boardInput } : {}),
+            ...(e.autoApprovalEvents ? { autoApprovalEvents: e.autoApprovalEvents } : {}),
             events: events.slice(-1000),
             sequence: e.sequence,
             gap: e.gap || e.sequence > 1000,
@@ -1090,6 +1094,7 @@ export class Engine {
           .at(-1),
         boardCards: this.store.findBy("boardCards", "sessionId", session.id),
         events: cachedEvents,
+        autoApprovalEvents: executions.flatMap(e => e.autoApprovalEvents || []),
         interactions: executions.flatMap((e) => e.interactions || []),
         questionRecords: executions.flatMap((e) => e.questionRecords || []),
         questionProtocol: 1,
@@ -1135,20 +1140,21 @@ export class Engine {
         },
         e.id,
       );
-      answer(p.answer);
-      // 策略决定写入会话活动，使历史可区分自动与人工批准。
-      if (p.decisionSource === "policy")
-        this.enqueueEvent(e.id, e.sessionId, "relay/approval/auto", {
-          interactionId: item.id,
-          method: item.method,
-          source: "policy",
-        });
-      this.state(
-        e.id,
-        this.store.get("localExecutions", e.id).interactions.length
-          ? "waiting"
-          : "running",
-      );
+      try {
+        await answer(p.answer);
+        if (p.decisionSource === "policy" && item.approval?.kind === "permission") {
+          const { itemId, turnId } = item.params || {};
+          this.enqueueEvent(e.id, e.sessionId, "relay/approval/auto", {
+            interactionId: item.id,
+            method: item.method,
+            source: "policy",
+            ...(typeof itemId === "string" && itemId ? { itemId } : {}),
+            ...(typeof turnId === "string" && turnId ? { turnId } : {}),
+          });
+        }
+      } finally {
+        this.state(e.id, "running");
+      }
       return { ok: true };
     }
     if (method === "connector.update.stopBlocker") {

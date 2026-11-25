@@ -264,6 +264,7 @@ for (const mode of [
         interaction: (id, method, params, answer) => {
           interactions++;
           if (mode === "question-auto" && method === "Write") {
+            assert.equal(params.itemId, "write_fixture");
             const approval = classifyApproval(method, params);
             assert.ok(approval);
             void answer(approval.answer);
