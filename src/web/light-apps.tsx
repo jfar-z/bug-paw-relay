@@ -1,7 +1,7 @@
 import { useRows } from "./use-rows.js";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { PanelsTopLeft } from "lucide-react";
+import { Maximize2, Minimize2, PanelsTopLeft } from "lucide-react";
 import { api } from "./api.js";
 import {
   caughtFeedback,
@@ -25,6 +25,7 @@ import {
   EntityCard,
   ErrorBox,
   FormField,
+  IconButton,
   LinkButton,
   Metadata,
   Panel,
@@ -825,7 +826,6 @@ function LightViewerContent({
   const surface = useRef<HTMLDivElement>(null);
   const [expanded, setExpanded] = useState(false);
   const toggle = useRef<HTMLSpanElement>(null);
-  const exitControl = useRef<HTMLDivElement>(null);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState<{
@@ -1095,7 +1095,7 @@ function LightViewerContent({
 
   // 系统全屏与窗口铺满共用同一节点，进出时保留沙箱运行状态。
   function leaveFullscreen() {
-    if (document.fullscreenElement === surface.current) {
+    if (document.fullscreenElement === document.documentElement) {
       void document.exitFullscreen().catch(() => {});
     } else {
       setExpanded(false);
@@ -1113,13 +1113,18 @@ function LightViewerContent({
       event.stopImmediatePropagation();
       leaveFullscreen();
     };
-    exitControl.current?.querySelector("button")?.focus();
+    toggle.current?.querySelector("button")?.focus();
     document.addEventListener("fullscreenchange", sync);
     dialog?.addEventListener("cancel", cancel, true);
     return () => {
       document.removeEventListener("fullscreenchange", sync);
+      if (document.fullscreenElement === document.documentElement) {
+        void document.exitFullscreen().catch(() => {});
+      }
       dialog?.removeEventListener("cancel", cancel, true);
-      toggle.current?.querySelector("button")?.focus();
+      const entry = toggle.current?.querySelector("button");
+      const fallback = dialog?.querySelector<HTMLButtonElement>("header > button");
+      (entry?.getClientRects().length ? entry : fallback)?.focus();
     };
   }, [expanded]);
 
@@ -1217,16 +1222,20 @@ function LightViewerContent({
   const submitDisabled = sending || (kind === "change" && !feedbackText);
   return (
     <>
-      {toolbar.current && createPortal(<span ref={toggle} className="light-fullscreen-entry" hidden={expanded || !ready}>
-        <Button onClick={() => {
-          setExpanded(true);
-          void surface.current?.requestFullscreen?.().catch(() => {});
-        }}>{t("light.fullscreen")}</Button>
-      </span>, toolbar.current)}
+      {toolbar.current && createPortal(
+        <span ref={toggle} className="light-fullscreen-entry" data-expanded={expanded} hidden={!ready && !expanded}>
+          <IconButton
+            label={t(expanded ? "light.exitFullscreen" : "light.fullscreen")}
+            icon={expanded ? <Minimize2 /> : <Maximize2 />}
+            onClick={() => {
+              if (expanded) return leaveFullscreen();
+              setExpanded(true);
+              // 模态 dialog 自身无法请求系统全屏，使用文档根保留顶层弹窗。
+              void document.documentElement.requestFullscreen?.().catch(() => {});
+            }}
+          />
+        </span>, toolbar.current)}
       <div ref={surface} className="ui-embedded-view" data-expanded={expanded}>
-        {expanded && <div ref={exitControl} className="light-fullscreen-exit">
-          <Button onClick={leaveFullscreen}>{t("light.exitFullscreen")}</Button>
-        </div>}
         <iframe
           ref={frame}
           name={target}
@@ -1269,12 +1278,12 @@ function LightViewerContent({
             </FormField>}
             <Actions>
               <Button variant="primary" disabled={submitDisabled}
-                onClick={() => void submit(kind, feedbackText, kind === "change")}>
-                {t(kind === "change" ? "light.submitNotify" : "light.confirmOnly")}
+                onClick={() => void submit(kind, feedbackText)}>
+                {t(kind === "change" ? "light.submitOnly" : "light.confirmOnly")}
               </Button>
               <Button disabled={submitDisabled}
-                onClick={() => void submit(kind, feedbackText, kind === "confirmed")}>
-                {t(kind === "change" ? "light.submitOnly" : "light.confirmNotify")}
+                onClick={() => void submit(kind, feedbackText, true)}>
+                {t(kind === "change" ? "light.submitNotify" : "light.confirmNotify")}
               </Button>
             </Actions>
           </>}

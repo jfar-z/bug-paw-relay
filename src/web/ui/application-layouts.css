@@ -2024,6 +2024,7 @@ dialog.closing::backdrop {
 
 /* 查看器给应用留出独立滚动区，宿主操作始终在应用之外。 */
 dialog[data-layout="viewer"] {
+  --ui-control: 44px;
   width: min(1200px, calc(100vw - 32px));
   height: min(840px, calc(100dvh - 32px));
   max-height: none;
@@ -2032,7 +2033,14 @@ dialog[data-layout="viewer"][open] {
   display: flex;
   flex-direction: column;
 }
+dialog[data-layout="viewer"] > header {
+  padding: 4px 12px;
+  gap: 8px;
+}
 dialog[data-layout="viewer"] > header h2 {
+  flex: 1;
+  max-height: 3.6em;
+  overflow: auto;
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -2071,12 +2079,32 @@ dialog[data-layout="viewer"] > .modal-body {
   overflow: auto;
 }
 .ui-embedded-view-controls {
-  display: grid;
-  gap: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
   max-height: 50%;
-  padding: 12px 16px;
+  padding: 4px 12px;
   border-top: 1px solid var(--border);
   overflow: auto;
+}
+.ui-embedded-view-controls > * {
+  flex-basis: 100%;
+  min-width: 0;
+}
+.ui-embedded-view-controls > .ui-sections,
+.ui-embedded-view-controls > .ui-actions {
+  flex: 0 1 auto;
+  gap: 4px;
+}
+.ui-embedded-view-controls > .ui-sections {
+  margin: 0 auto 0 0;
+  padding: 0;
+  border: 0;
+}
+dialog[data-layout="viewer"] :is(header button, .ui-embedded-view-controls button) {
+  min-height: 44px;
+  min-width: 44px;
 }
 @media (max-width: 760px), (max-height: 480px) {
   dialog[data-layout="viewer"] {
@@ -2092,34 +2120,27 @@ dialog[data-layout="viewer"] > .modal-body {
   }
 }
 
-/* 横屏操作留在宿主层，退出按钮避开刘海与圆角。 */
+/* 横屏入口与全屏还原共用标题栏位置，旋转到竖屏后仍可退出。 */
 .light-viewer-toolbar { display: none; }
-.light-fullscreen-entry:not([hidden]),
-.light-fullscreen-exit {
-  display: flex;
-  min-height: 44px;
+.light-viewer-toolbar .ui-icon-wrap::after {
+  inset: 50% calc(100% + 6px) auto auto;
+  transform: translateY(-50%);
 }
-@media (orientation: landscape) and (max-height: 540px),
-       (orientation: landscape) and (pointer: coarse) and (max-width: 1000px) {
+.light-viewer-toolbar:has([data-expanded="true"]) { display: flex; }
+@media (orientation: landscape) {
   .light-viewer-toolbar:has(.light-fullscreen-entry:not([hidden])) { display: flex; }
-  dialog[data-layout="viewer"] > header h2 { flex: 1; }
 }
 dialog[data-layout="viewer"]:has(.ui-embedded-view[data-expanded="true"]) {
+  box-sizing: border-box;
   margin: 0;
-  width: 100vw;
+  width: 100%;
   height: 100dvh;
   max-width: none;
-  padding: 0;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
   border: 0;
   border-radius: 0;
 }
-dialog[data-layout="viewer"]:has(.ui-embedded-view[data-expanded="true"]) > header,
 .ui-embedded-view[data-expanded="true"] ~ .ui-embedded-view-controls {
   display: none;
-}
-.light-fullscreen-exit {
-  position: absolute;
-  z-index: 1;
-  top: max(8px, env(safe-area-inset-top));
-  right: max(8px, env(safe-area-inset-right));
 }

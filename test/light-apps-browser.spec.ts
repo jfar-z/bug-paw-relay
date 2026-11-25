@@ -86,12 +86,14 @@ async function withHosting(page: Page, context: BrowserContext, run: (
         reply.writeHead(502).end();
         return;
       }
+      const clientAddress = req.headers["user-agent"]?.includes("InstalledFixture")
+        ? "127.0.0.2" : req.headers["accept-language"] === "en-US" ? "127.0.0.3" : "127.0.0.1";
       const incoming = request(
         new URL(req.url!, target),
         {
           method: req.method, headers: req.headers,
           // 让独立设备拥有各自的回环源地址，保留服务端按客户端限流。
-          localAddress: req.headers["user-agent"]?.includes("InstalledFixture") ? "127.0.0.2" : "127.0.0.1",
+          localAddress: clientAddress,
         },
         (response) => {
           if (controls.dropSaveReceipt && req.method === "POST" && req.url?.endsWith("/feedback")) {
@@ -307,7 +309,8 @@ test("会话与工作项发布、历史反馈、下架恢复及手机查看", as
     fixtureTime(legacy.versionId, 30);
     store.db.prepare("UPDATE entities SET body=json_remove(body,'$.executionId') WHERE id=?")
       .run(legacy.versionId);
-    const boardApp = await publish("看板原型", "看板应用", { executionId: boardExecution });
+    const boardTitle = "看板原型" + " · 跨团队交互设计审阅".repeat(5);
+    const boardApp = await publish(boardTitle, "看板应用", { executionId: boardExecution });
     const secondExecution = randomUUID();
     store.db.prepare("INSERT INTO executions VALUES(?,NULL,?,?,'running','{}',?)")
       .run(secondExecution, session.id, env.id, new Date((initialTime + 40) * 1000).toISOString());
@@ -401,8 +404,13 @@ test("会话与工作项发布、历史反馈、下架恢复及手机查看", as
     await page.getByRole("button", { name: "仅确认" }).click();
     await expect(page.getByText("反馈已提交")).toBeVisible();
     await page.screenshot({ path: info.outputPath("desktop-viewer.png") });
+    await page.getByRole("button", { name: "全屏", exact: true }).click();
+    await expect(page.getByText("反馈已提交")).toBeHidden();
+    await page.getByRole("button", { name: "退出全屏" }).click();
+    await expect(page.getByText("反馈已提交")).toBeVisible();
+    await page.getByRole("button", { name: "全屏", exact: true }).click();
     await versionFrame!.evaluate(() => localStorage.setItem("checkpoint", "closing"));
-    await page.keyboard.press("Escape");
+    await page.getByRole("dialog").getByRole("button", { name: "关闭", exact: true }).click();
     await expect(firstButton).toBeFocused();
     await expect.poll(() => store.findBy("lightStorage", "versionId", first.versionId)[0]?.entries)
       .toEqual([["score", "第一版成绩"], ["checkpoint", "closing"]]);
@@ -418,10 +426,14 @@ test("会话与工作项发布、历史反馈、下架恢复及手机查看", as
 
     await page.goto(origin + "/#board/" + board.id);
     await page.getByRole("heading", { name: item.title, exact: true }).click();
-    await page.getByRole("button", { name: "打开 看板原型 · 版本 1" }).click();
+    await page.getByRole("button", { name: `打开 ${boardTitle} · 版本 1` }).click();
     await expect(
       frame.getByRole("heading", { name: "看板应用" }),
     ).toBeVisible();
+    await page.setViewportSize({ width: 320, height: 700 });
+    const boardHeader = page.getByRole("dialog").last().locator("header");
+    await expect(boardHeader.getByRole("heading")).toContainText(boardTitle);
+    await expect(boardHeader.getByRole("button", { name: "关闭" })).toBeInViewport();
     await expect(frame.locator("output")).toHaveText("空存档");
     await page.getByRole("button", { name: "提出修改" }).click();
     await page.getByRole("textbox", { name: "修改意见" }).fill("请调整标题");
@@ -511,32 +523,67 @@ test("会话与工作项发布、历史反馈、下架恢复及手机查看", as
     // 后续下架和删除场景沿用原发布执行。
     store.db.prepare("UPDATE executions SET state='running' WHERE id=?").run(execution);
 
-    await page.setViewportSize({ width: 844, height: 390 });
     async function checkLandscape(active: Page, standalone: boolean) {
-      await active.setViewportSize({ width: 844, height: 390 });
       const dialog = active.getByRole("dialog").last();
-      const enter = dialog.getByRole("button", { name: "全屏", exact: true });
-      const leave = dialog.getByRole("button", { name: "退出全屏" });
+      const header = dialog.locator("header");
+      const enter = header.getByRole("button", { name: "全屏", exact: true });
+      const leave = header.getByRole("button", { name: "退出全屏" });
+      const close = header.getByRole("button", { name: "关闭" });
+      const draft = dialog.getByRole("textbox", { name: "修改意见" });
       const output = active.frameLocator("iframe").locator("output");
+      const change = dialog.getByRole("button", { name: "提出修改" });
       await output.evaluate(el => { el.textContent = "游戏进行中"; });
       expect(await active.evaluate(() => matchMedia("(display-mode: standalone)").matches)).toBe(standalone);
-      for (const system of [true, false]) {
-        if (!system) await active.evaluate(() => {
-          Object.defineProperty(Element.prototype, "requestFullscreen", { configurable: true, value: undefined });
-        });
-        await enter.tap();
-        await expect(leave).toBeVisible();
-        expect((await leave.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-        expect(await active.evaluate(() => !!document.fullscreenElement)).toBe(system);
-        await expect(dialog.getByRole("button", { name: "仅确认" })).toBeHidden();
-        expect(await active.locator("iframe").boundingBox()).toMatchObject({ width: 844, height: 390 });
-        await active.screenshot({ path: info.outputPath(`landscape-${standalone ? "pwa" : "browser"}-${system ? "system" : "window"}.png`) });
-        if (system) await active.evaluate(() => document.exitFullscreen());
-        else await leave.tap();
-        await expect(enter).toBeFocused();
-        await expect(dialog.getByRole("button", { name: "仅确认" })).toBeVisible();
-        await expect(output).toHaveText("游戏进行中");
+      // 同一查看器覆盖桌面和手机视口，切换时保持沙箱和草稿。
+      const device = await active.context().newCDPSession(active);
+      for (const width of [1440, 844]) {
+        await device.send("Emulation.setTouchEmulationEnabled", { enabled: width === 844 });
+        const height = width === 1440 ? 900 : 390;
+        await active.setViewportSize({ width, height });
+        await change.click();
+        await dialog.getByRole("button", { name: "确认此版本" }).click();
+        const footer = dialog.locator(".ui-embedded-view-controls");
+        const footerHeight = (await footer.boundingBox())!.height;
+        expect(footerHeight).toBeLessThanOrEqual(64);
+        expect((await change.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+        console.log({ standalone, width, height, footerHeight });
+        await change.click();
+        await draft.fill("未提交意见");
+        for (const mode of ["system", "window", "denied"]) {
+          await active.evaluate(mode => {
+            const root = document.documentElement;
+            if (mode === "system") Reflect.deleteProperty(root, "requestFullscreen");
+            else Object.defineProperty(root, "requestFullscreen", { configurable: true,
+              value: mode === "window" ? undefined : () => Promise.reject(new Error("denied")) });
+          }, mode);
+          await enter.click();
+          await expect(leave.locator("svg")).toBeVisible();
+          await expect(header.getByRole("heading")).toContainText("交互报告");
+          await expect(close).toBeVisible();
+          expect((await leave.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+          expect(await active.evaluate(() => !!document.fullscreenElement)).toBe(mode === "system");
+          await expect(footer).toBeHidden();
+          const box = (await active.locator("iframe").boundingBox())!;
+          expect(box.width).toBe(width);
+          expect(box.y).toBeCloseTo((await header.boundingBox())!.height, 0);
+          expect(box.y + box.height).toBeCloseTo(height, 0);
+          if (mode === "system") {
+            await active.screenshot({ path: info.outputPath(`fullscreen-${standalone}-${width}.png`) });
+            await active.evaluate(() => document.exitFullscreen());
+          } else if (mode === "window") await leave.click();
+          else {
+            await active.setViewportSize({ width: 320, height: 700 });
+            await active.keyboard.press("Escape");
+            await expect(close).toBeFocused();
+            await expect(enter).toBeHidden();
+          }
+          if (mode !== "denied") await expect(enter).toBeFocused();
+          await expect(draft).toHaveValue("未提交意见");
+          await expect(output).toHaveText("游戏进行中");
+        }
       }
+      await device.detach();
+      await dialog.getByRole("button", { name: "确认此版本" }).click();
     }
     await checkLandscape(page, false);
     await page.setViewportSize({ width: 390, height: 844 });
@@ -615,6 +662,8 @@ test("会话与工作项发布、历史反馈、下架恢复及手机查看", as
     await page.goto(origin + "/#chat/" + session.id);
     await expect(firstButton).toBeVisible();
 
+    // 英文客户端使用独立回环地址，避免多组验收累计占用同一个客户端配额。
+    await page.setExtraHTTPHeaders({ "Accept-Language": "en-US" });
     service.saveLanguage({ preference: "en" });
     await page.reload();
     await page
@@ -631,11 +680,25 @@ test("会话与工作项发布、历史反馈、下架恢复及手机查看", as
       page.getByRole("button", { name: "Approve this version" }),
     ).toBeVisible();
 
-    await expect(viewer.getByRole("button", { name: "Approve only" })).toHaveClass(/ui-button-primary/);
-    await expect(viewer.getByRole("button", { name: "Approve and notify Agent" })).toHaveClass(/ui-button-secondary/);
-    await viewer.getByRole("button", { name: "Request changes" }).click();
-    await expect(viewer.getByRole("button", { name: "Submit and ask Agent to act" })).toHaveClass(/ui-button-primary/);
-    await expect(viewer.getByRole("button", { name: "Submit feedback only" })).toHaveClass(/ui-button-secondary/);
+    await page.setViewportSize({ width: 320, height: 700 });
+    const actions = viewer.locator(".ui-embedded-view-controls .ui-actions button");
+    for (const theme of ["light", "dark", "bug"]) {
+      await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
+      for (const [section, save, send] of [
+        ["Approve this version", "Approve only", "Approve and notify Agent"],
+        ["Request changes", "Submit feedback only", "Submit and ask Agent to act"],
+      ]) {
+        await viewer.getByRole("button", { name: section }).click();
+        await expect(actions).toHaveText([save, send]);
+        await expect(actions.first()).toHaveClass(/ui-button-primary/);
+        await expect(actions.last()).toHaveClass(/ui-button-secondary/);
+        for (const action of await actions.all()) {
+          const box = (await action.boundingBox())!;
+          expect(box.x).toBeGreaterThanOrEqual(0);
+          expect(box.x + box.width).toBeLessThanOrEqual(320);
+        }
+      }
+    }
 
     // 会话事件实时送达，拒绝保持上架，新增版本需要重新审阅。
     await page.keyboard.press("Escape");
@@ -697,15 +760,15 @@ test("会话与工作项发布、历史反馈、下架恢复及手机查看", as
     const dialog = page.getByRole("dialog", { name: "永久删除" });
     const confirm = dialog.getByRole("button", { name: "永久删除", exact: true });
     await expect(report).toHaveCount(0);
-    await deleteButton("看板原型").click();
+    await deleteButton(boardTitle).click();
     await expect(dialog.getByText(/全部 1 个版本/)).toBeVisible();
     await dialog.getByRole("button", { name: "取消", exact: true }).click();
-    await expect(deleteButton("看板原型")).toBeVisible();
-    await deleteButton("看板原型").click();
+    await expect(deleteButton(boardTitle)).toBeVisible();
+    await deleteButton(boardTitle).click();
     await expect(dialog).toBeVisible();
     await page.screenshot({ path: info.outputPath("desktop-delete-zh.png"), animations: "disabled" });
     await confirm.click();
-    await expect(card("看板原型")).toHaveCount(0);
+    await expect(card(boardTitle)).toHaveCount(0);
     expect(store.get("lightApps", boardApp.appId).deletion).toBe("deleted");
     await card("计算器").getByRole("button", { name: "下架", exact: true }).click();
     await page.getByRole("button", { name: "已下架", exact: true }).click();
