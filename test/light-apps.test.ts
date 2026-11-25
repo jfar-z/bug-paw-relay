@@ -452,6 +452,56 @@ test("发布、重试、独立服务、按版反馈和登录撤销共用真实�
     publish({ appId: twin.appId, operationId: randomUUID() }),
     { code: "LIGHT_DELETED" },
   );
+  await t.test("版本绑定、视图授权和恢复沿用真实发布与托管票据", async () => {
+    const first = randomUUID(), second = randomUUID();
+    const newVersion = (backendServiceId: string, appId?: string) => publish({
+      appId, backendServiceId, operationId: randomUUID(),
+    }) as Promise<typeof v>;
+    await assert.rejects(newVersion(first), { code: "LIGHT_UPGRADE" });
+    const capabilities = ["light-apps-v1", "light-apps-v2", "light-apps-v3", "light-apps-v4", "light-apps-backend-v1"];
+    f.store.put("environments", { capabilities }, env.id);
+    // 此用例记录 RPC 目标，真实本机 HTTP 及持久化由连接器独立用例验证。
+    const targets: string[] = [];
+    peer.call = async (method: string, input: any) => {
+      if (method === "light.backend.probe") {
+        assert.equal(input.sessionId, session.id);
+        if (input.serviceId !== first && input.serviceId !== second) throw new AppError("LIGHT_SERVICE", "unavailable", 503);
+        return { port: input.serviceId === first ? 4101 : 4102 };
+      }
+      if (method === "light.backend.call") {
+        targets.push(input.serviceId);
+        assert.equal(input.sessionId, session.id);
+        return {status: 201, body: '"accepted"'};
+      }
+      return reader.call(method, input);
+    };
+    await assert.rejects(newVersion(randomUUID()), { code: "LIGHT_SERVICE" });
+    const a = await newVersion(first);
+    const b = await newVersion(second, a.appId);
+    const grantFor = async (id: string) => {
+      const open = await f.app.inject({method: "POST", url: "/api/light-versions/" + id + "/open", headers});
+      const {ticket, action, viewId} = open.json();
+      const grant = await host.inject({method: "POST", url: new URL(action).pathname, headers: hostHeaders, payload: {ticket}});
+      assert.equal(grant.statusCode, 303);
+      return viewId;
+    };
+    const one = await grantFor(a.versionId), two = await grantFor(b.versionId);
+    const call = { method: "GET", path: "/records" };
+    const use = (version: string, view: string, args = call) => runtime("backend", {call: args}, view, version);
+    assert.equal((await use(v.versionId, fresh.viewId)).json().code, "LIGHT_STATIC");
+    assert.equal((await use(a.versionId, two)).statusCode, 401);
+    assert.equal((await use(a.versionId, one, {...call, path: "//example.test"})).statusCode, 400);
+    assert.equal((await use(a.versionId, one)).json().status, 201);
+    assert.equal((await use(b.versionId, two)).json().status, 201);
+    f.service.peers.delete(env.id);
+    assert.equal((await use(a.versionId, one)).json().code, "OFFLINE");
+    f.service.peers.set(env.id, peer);
+    assert.equal((await use(a.versionId, one)).json().status, 201);
+    await action("light.unlist", a.appId);
+    assert.equal((await use(a.versionId, one)).statusCode, 410);
+    assert.deepEqual(targets, [first, second, first]);
+    peer.call = reader.call.bind(reader);
+  });
   f.service.peers.delete(env.id);
   await rm(root, { recursive: true });
   assert.equal((await asset(active)).statusCode, 200);

@@ -46,7 +46,7 @@ export const appTarget = z.object({ appId: z.uuid() }).strict();
 export const versionsCapability = "light-apps-v2";
 export function sessionProductContext(publish: boolean, query: boolean) {
   const feature = [
-    "In BugPaw Relay, a “Light App” (轻应用) is a static web app that users can open from a conversation or the Light Apps page and give feedback on by version. Small browser games, interactive demos, and prototypes are good candidates.",
+    "In BugPaw Relay, a “Light App” (轻应用) has a static frontend and can bind a dedicated HTTP service running in its source environment. Users can open a version from a conversation or the Light Apps page and give feedback. Small browser games, interactive demos, and prototypes are good candidates.",
     publish &&
       "Before building a Light App, call the Light App docs tool to read its runtime constraints. A request such as “make an X Light App” is a request to build and publish it. If the user asks to publish a Light App, use the publishing tool. If you suggest publishing it yourself, ask first.",
     query &&
@@ -94,6 +94,7 @@ export const publishInput = z
       .max(512)
       .default("index.html")
       .describe("HTML entry relative to directory. Defaults to index.html."),
+    backendServiceId: z.uuid().optional().describe("Optional dedicated service ID registered in this session. Read Light App backend docs before binding."),
     files: z
       .array(z.string().min(1).max(512))
       .max(128)
@@ -164,4 +165,21 @@ export function lightError(
 export function lightSandbox(prefix: string, origin: string) {
     return `sandbox allow-scripts; default-src 'none'; script-src ${prefix} 'unsafe-inline'; style-src ${prefix} 'unsafe-inline'; img-src ${prefix} data: blob:; media-src ${prefix} blob:; font-src ${prefix} data:; connect-src ${prefix}; worker-src 'none'; form-action 'none'; base-uri ${prefix}; frame-ancestors ${origin}`;
   }
-export const docsQuery = z.object({ topic: z.enum(["overview", "runtime", "storage", "debugging"]).default("overview") }).strict();
+export const docsQuery = z.object({ topic: z.enum(["overview", "runtime", "storage", "debugging", "backend"]).default("overview") }).strict();
+
+export const backendCapability = "light-apps-backend-v1";
+export const backendByteLimit = 64 * 1024;
+export const backendPort = z.int().min(1024).max(65535);
+const jsonText = z.string().max(backendByteLimit).refine(value => {
+  if (Buffer.byteLength(value) > backendByteLimit) return false;
+  try { JSON.parse(value); return true; } catch { return false; }
+});
+export const backendCall = z.object({
+  method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]),
+  path: z.string().max(2048).regex(/^\/(?!\/)[!-~]*$/).refine(value => !/[\\#]/.test(value)),
+  body: jsonText.optional(),
+}).strict().refine(call => call.method !== "GET" || call.body === undefined);
+export const backendResult = z.object({
+  status: z.int().min(200).max(599),
+  body: jsonText.nullable(),
+}).strict();

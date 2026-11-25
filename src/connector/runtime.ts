@@ -28,9 +28,9 @@ import { randomUUID } from "node:crypto";
 import { loadClaudeSdk } from "./claude-sdk.js";
 import { z } from "zod";
 import { AppError, ensure } from "../shared/contracts.js";
-const docsDescription = "Read Light App authoring constraints before building. Topics cover the runtime, version storage and debugging.";
+const docsDescription = "Read Light App authoring constraints before building. Topics cover the runtime, dedicated environment backend, version storage and debugging.";
 const publishDescription =
-  "Publish the selected static assets from this environment conversation as a BugPaw Relay Light App, with user consent. Returns appId, versionId and number.";
+  "Publish the selected static assets from this environment conversation as a BugPaw Relay Light App, with user consent. Optionally bind a running dedicated service (see backend docs). Returns appId, versionId, number and hasBackend.";
 const versionsDescription =
   "List apps and versions from this conversation, including listing status, publication time and feedback and runtime error counts. Optionally filter by appId.";
 const lifecycleTools = [

@@ -1,3 +1,5 @@
+import { LightBackend } from "./light-backend.js";
+import { backendCapability } from "../shared/light-apps.js";
 import { boardSessionTitleCapability } from "../shared/stage-handoff.js";
 import { boardCapability } from "../shared/session-boards.js";
 import { commandCapability } from "../shared/slash-commands.js";
@@ -93,6 +95,7 @@ export async function runWorker(settings: ConnectorConfig) {
   let lastErrorDetails: ReturnType<typeof errorBody> | undefined;
   let retry: NodeJS.Timeout | undefined;
   let engineErrorCode: "STORAGE_UNAVAILABLE" | "SHUTDOWN_FAILED" | null = null;
+  const lightBackend = new LightBackend(settings.dir);
   const engine = new EngineClient(
     settings.dir,
     (method, params) => {
@@ -130,6 +133,10 @@ export async function runWorker(settings: ConnectorConfig) {
             504,
           );
         }
+      }
+      if (method === "light.docs" && payload.args.topic === "backend") {
+        const docs = await peer.call(method, payload);
+        return { ...docs, registrationDirectory: join(settings.dir, "light-services", docs.sessionId) };
       }
       if (method?.startsWith("board.")) return peer.call(method, payload, 180000);
       if (["light.docs", "light.versions", "light.feedback", "light.unlist", "light.delete"].includes(method))
@@ -370,6 +377,7 @@ export async function runWorker(settings: ConnectorConfig) {
                 "light-apps-v2",
                 "light-apps-v3",
                 "light-apps-v4",
+                backendCapability,
                 "stage-handoff-short-id-v1",
                 boardSessionTitleCapability,
                 "user-questions-v1",
@@ -453,6 +461,8 @@ export async function runWorker(settings: ConnectorConfig) {
           await revoke(ws);
           return;
         }
+        if (method === "light.backend.probe" || method === "light.backend.call")
+          return lightBackend.handle(method, params);
         if (method === "environment.modelConfig")
           return environmentModelConfig(
             settings,
