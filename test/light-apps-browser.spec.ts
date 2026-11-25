@@ -143,6 +143,61 @@ async function withHosting(page: Page, context: BrowserContext, run: (
   }
 }
 
+test("来源会话标题按卡片宽度省略并支持触屏与键盘查看", async ({ page, context }) => {
+  await withHosting(page, context, async ({ store, service }) => {
+    const env = store.put("environments", { name: "测试环境", approved: true });
+    const project = service.save("projects", {
+      name: "发布项目",
+      directories: [{ environmentId: env.id, rootId: "root", relativePath: "." }],
+    });
+    const titles = ["周报", "这是一段需要完整阅读的会话标题 Long session title ".repeat(12).trim()];
+    const sessions = titles.map((title, index) => {
+      const session = store.put("sessions", {
+        title, projectId: project.id, environmentId: env.id, runtime: "codex",
+        rootId: "root", relativePath: ".",
+      });
+      store.put("lightApps", {
+        title: "应用 " + index, listed: true, number: 1, latestVersionId: randomUUID(),
+        projectId: project.id, environmentId: env.id, sessionId: session.id,
+        publishedAt: new Date().toISOString(),
+      });
+      return session;
+    });
+
+    for (const width of [1440, 390, 320]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(origin + "/#light-apps");
+      const buttons = titles.map((name) => page.getByRole("button", { name, exact: true }));
+      const heights = [];
+      for (const [i, button] of buttons.entries()) {
+        await expect(button).toBeVisible();
+        const title = button.locator("span");
+        await expect(title).toHaveCSS("text-overflow", "ellipsis");
+        await expect(title).toHaveCSS("white-space", "nowrap");
+        expect(await title.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(i === 1);
+        const source = button.locator("xpath=ancestor::dl");
+        heights.push((await source.boundingBox())!.height);
+        const link = source.getByRole("link", { name: "查看来源会话" });
+        await expect(link).toHaveAttribute("href", "#chat/" + sessions[i].id);
+        const box = (await link.boundingBox())!;
+        const card = (await button.locator("xpath=ancestor::section[1]").boundingBox())!;
+        expect(box.x + box.width).toBeLessThanOrEqual(Math.min(width, card.x + card.width));
+        expect(await link.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+      }
+      expect(heights[0]).toBe(heights[1]);
+      if (width === 1440) await buttons[1].press("Enter");
+      else await buttons[1].tap();
+      const dialog = page.getByRole("dialog");
+      await expect(dialog.getByText(titles[1], { exact: true })).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(buttons[1]).toBeFocused();
+      await buttons[1].locator("xpath=ancestor::dl").getByRole("link").click();
+      await expect(page).toHaveURL(origin + "/#chat/" + sessions[1].id);
+      await expect(page.getByRole("heading", { name: titles[1], exact: true }).first()).toBeVisible();
+    }
+  });
+});
+
 test("会话与工作项发布、历史反馈、下架恢复及手机查看", async ({
   page,
   context,

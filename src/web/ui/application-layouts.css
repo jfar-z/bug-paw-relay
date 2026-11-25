@@ -2148,3 +2148,29 @@ dialog[data-layout="fullscreen"] > header h2 {
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+
+/* 项目与环境保留完整名称，会话标题使用按钮以外的可用宽度。 */
+.light-card-source {
+  margin: 16px 0;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 12px;
+  font-size: 12px;
+}
+.light-card-source dt { color: var(--text-secondary); }
+.light-card-source dd { margin: 0; text-align: end; overflow-wrap: anywhere; }
+.light-card-source-session {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+.light-card-source-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.light-card-source-full { white-space: pre-wrap; overflow-wrap: anywhere; }

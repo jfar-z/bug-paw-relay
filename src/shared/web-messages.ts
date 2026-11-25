@@ -210,6 +210,7 @@ export const webMessages = {
   "light.published": { "zh-CN": "发布时间", en: "Published" },
   "light.source": { "zh-CN": "来源", en: "Source" },
   "light.sourceMissing": { "zh-CN": "来源已不可用", en: "Source unavailable" },
+  "light.sourceTitle": { "zh-CN": "来源会话标题", en: "Source session title" },
   "light.sourceSession": { "zh-CN": "查看来源会话", en: "View source session" },
   "light.listError": { "zh-CN": "无法读取轻应用", en: "Could not load light apps" },
   "light.listingError": { "zh-CN": "未能更新上架状态，已重新查询当前状态。", en: "Could not update the listing. The current status has been requested again." },

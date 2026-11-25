@@ -96,7 +96,9 @@ function ListingBadge({ listed, deletion }: Pick<Published, "listed" | "deletion
 function SourceDetails({
   value,
   sources,
+  card = false,
 }: {
+  card?: boolean;
   value: Partial<Source>;
   sources: Sources;
 }) {
@@ -105,6 +107,32 @@ function SourceDetails({
     ({ id }) => id === value.environmentId,
   );
   const session = sources.sessions.find(({ id }) => id === value.sessionId);
+  const [showTitle, setShowTitle] = useState(false);
+  const link = session && (
+    <LinkButton href={"#chat/" + session.id}>{t("light.sourceSession")}</LinkButton>
+  );
+  // 列表为跳转按钮预留宽度，点按标题即可阅读全文。
+  if (card && session?.title) {
+    return (
+      <dl className="light-card-source">
+        <dt>{t("light.source")}</dt>
+        <dd>
+          {[project?.name, environment?.name].filter(Boolean).join(" · ")}
+        </dd>
+        <dd className="light-card-source-session">
+          <Button variant="ghost" size="small" aria-haspopup="dialog" onClick={() => setShowTitle(true)}>
+            <span className="light-card-source-title">{session.title}</span>
+          </Button>
+          {link}
+          {showTitle && (
+            <Dialog title={t("light.sourceTitle")} onClose={() => setShowTitle(false)}>
+              <p className="light-card-source-full">{session.title}</p>
+            </Dialog>
+          )}
+        </dd>
+      </dl>
+    );
+  }
   return (
     <Metadata
       items={[
@@ -115,14 +143,7 @@ function SourceDetails({
               {[project?.name, environment?.name, session?.title]
                 .filter(Boolean)
                 .join(" · ") || t("light.sourceMissing")}
-              {session && (
-                <>
-                  {" "}
-                  <LinkButton href={"#chat/" + session.id}>
-                    {t("light.sourceSession")}
-                  </LinkButton>
-                </>
-              )}
+              {link && <> {link}</>}
             </>
           ),
         },
@@ -673,7 +694,7 @@ export function LightAppsPage({ sources }: { sources: Sources }) {
                 </>
               }
             >
-              <SourceDetails value={app} sources={sources} />
+              <SourceDetails value={app} sources={sources} card />
               <time dateTime={app.publishedAt}>
                 {localeDate(app.publishedAt)}
               </time>
