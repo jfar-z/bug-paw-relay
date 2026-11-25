@@ -232,9 +232,21 @@ test("看板首轮及连续两轮续发：真实调度、响应丢失对账、�
     const first = f.server.get("items", item.id).executionId;
     const sessionId = f.service.execution(first).session_id;
     f.server.put("items", { title: "排队后编辑" }, item.id);
+    // 阶段改用新智能体后可以删除旧配置；排队执行仍使用入队时的快照。
+    const originalId = board.stages[1].agentId;
+    const replacement = f.service.save("agents", { name: "接替智能体" });
+    f.service.save("boards", {
+      ...board,
+      stages: board.stages.map((stage: any) => stage.id === stages[0] ? { ...stage, agentId: replacement.id } : stage),
+    }, board.id, board.version);
+    f.service.remove("agents", originalId);
+    assert.equal(JSON.parse(f.service.execution(first).snapshot).agent.id, originalId);
     await f.service.tick();
     await until(() => f.service.execution(first).state === "completed");
     assert.equal(f.server.get("sessions", sessionId).title, "甲".repeat(196) + "-开发");
+    await assert.rejects(f.service.send(sessionId, randomUUID(), "继续"), code("SESSION_AGENT_DELETED"));
+    const oldSession = f.server.get("sessions", sessionId);
+    f.service.configureSession(sessionId, { agentId: replacement.id, permission: oldSession.permission });
     const renamed = await f.engine.call("commands.rename", {
       environmentId: f.env.id, projectId: project.id, runtime: "codex", rootId: "root",
       relativePath: ".", name: "rename", sessionId, operationId: randomUUID(), title: "人工标题",

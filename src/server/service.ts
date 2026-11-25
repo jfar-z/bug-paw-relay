@@ -36,6 +36,8 @@ import { z } from "zod";
 import { Store } from "./store.js";
 import { Vault, digest } from "./security.js";
 import {
+  AgentReferencedError,
+  type AgentBoardReference,
   AppError,
   ensure,
   agentSchema,
@@ -1180,6 +1182,7 @@ export class Service {
   }
   remove(kind: string, id: string) {
     if (kind === "boards") return this.removeBoard(id);
+    if (kind === "agents") return this.removeAgent(id);
     this.store.get(kind, id);
     const refs =
       this.store
@@ -1203,6 +1206,32 @@ export class Service {
     );
     this.store.remove(kind, id);
     return { ok: true };
+  }
+  private removeAgent(id: string) {
+    return this.store.transaction(() => {
+      this.store.get("agents", id);
+      const references: AgentBoardReference[] = [];
+      for (const board of this.store.list<Board>("boards")) {
+        const stages = board.stages.filter(stage => stage.agentId === id);
+        if (!stages.length) continue;
+        const project = board.projectId && this.store.findBy("projects", "id", board.projectId)[0];
+        references.push({
+          boardId: board.id,
+          boardName: board.name ?? null,
+          projectId: board.projectId ?? null,
+          projectName: project ? project.name ?? null : null,
+          archived: Boolean(board.archived),
+          stages: stages.map(stage => ({
+            id: stage.id, name: stage.name ?? null, shortId: stage.shortId ?? null,
+            ...(stage.nameKey ? { nameKey: stage.nameKey } : {}),
+          })),
+        });
+      }
+      if (references.length) throw new AgentReferencedError(references);
+      // 保留会话中的原始 ID 与执行快照，只有下一次新执行需要重新选择。
+      this.store.remove("agents", id);
+      return { ok: true };
+    });
   }
   /** 删除已无未完成且未归档工作项的看板，保留独立会话及执行历史。 */
   private removeBoard(id: string) {
@@ -1782,6 +1811,13 @@ export class Service {
     );
     return p;
   }
+  /** 空 ID 属于原本无智能体的会话，非空失效 ID 需要用户显式更换。 */
+  sessionAgentForExecution(session: Entity) {
+    if (!session.agentId) return null;
+    const agent = this.store.findBy("agents", "id", session.agentId)[0];
+    ensure(agent, "SESSION_AGENT_DELETED", i18nMessage("errors.SESSION_AGENT_DELETED.reselect"), 409);
+    return agent;
+  }
   async send(
     sessionId: string,
     operationId: string,
@@ -1859,6 +1895,7 @@ export class Service {
       const saved = JSON.parse(old.result);
       return { ...saved, status: this.execution(saved.executionId).state };
     }
+    const agent = this.sessionAgentForExecution(session);
     ensure(
       !this.updating(session.environmentId),
       "UPDATE_IN_PROGRESS",
@@ -1921,9 +1958,6 @@ export class Service {
       sessionId,
       status: "dispatching",
     };
-    const agent = session.agentId
-      ? this.store.get("agents", session.agentId)
-      : null;
     // 配置可能在会话创建后调整，每次新执行都重新核对；不改写在途快照。
     if (agent)
       ensure(

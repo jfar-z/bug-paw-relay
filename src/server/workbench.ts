@@ -29,6 +29,7 @@ import { randomUUID } from "node:crypto";
 import { Service } from "./service.js";
 import { digest } from "./security.js";
 import {
+  AgentReferencedError,
   AppError,
   ensure,
   workItemSchema,
@@ -131,7 +132,7 @@ export class Workbench {
           id,
           name,
           output:
-            name === "create_work_item" || name === "session_send"
+            name === "create_work_item" || name === "session_send" || error instanceof AgentReferencedError
               ? creationToolError(error)
               : name === "board_write"
                 ? boardToolError(error)
@@ -432,7 +433,7 @@ export class Workbench {
         errorFunction: (_context, error) =>
           error instanceof AppError && error.code === "CLI_DISABLED"
             ? translate(s.languageSettings().locale, "errors.CLI_DISABLED.environment")
-            : name === "create_work_item" || name === "session_send"
+            : name === "create_work_item" || name === "session_send" || error instanceof AgentReferencedError
             ? creationToolError(error)
             : name === "board_write"
               ? boardToolError(error)
@@ -1280,7 +1281,10 @@ function creationToolError(error: unknown) {
       code: error.code,
       messageKey: error.messageKey,
       message: error.message,
-      messages: error.messages,
+      messages: error.code === "SESSION_AGENT_DELETED"
+        ? { "zh-CN": error.message, en: translate("en", "errors.SESSION_AGENT_DELETED.reselect") }
+        : error.messages,
+      ...(error instanceof AgentReferencedError ? { boardReferences: error.boardReferences } : {}),
       retryable: error.retryable,
     });
   return boardToolError(error);

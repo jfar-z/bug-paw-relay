@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { AppError } from "./contracts.js";
+import { AgentReferencedError, AppError } from "./contracts.js";
 import {
   isMessageKey,
   translate,
@@ -129,6 +129,7 @@ export function errorBody(error: unknown, locale: Locale) {
       ? { retryable: error.retryable }
       : {}),
     ...(known && error.messageKey ? { params: messageParams } : {}),
+    ...(error instanceof AgentReferencedError ? { boardReferences: error.boardReferences } : {}),
     ...(known && error.field ? { field: error.field } : {}),
   };
 }

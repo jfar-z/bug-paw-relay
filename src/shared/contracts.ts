@@ -260,6 +260,22 @@ export class AppError extends Error {
     }
   }
 }
+/** 仅公开定位引用所需的元数据；历史关联缺失时保留原始标识。 */
+export interface AgentBoardReference {
+  boardId: string;
+  boardName: string | null;
+  projectId: string | null;
+  projectName: string | null;
+  archived: boolean;
+  stages: { id: string; name: string | null; shortId: string | null; nameKey?: Stage["nameKey"] }[];
+}
+
+export class AgentReferencedError extends AppError {
+  constructor(public readonly boardReferences: AgentBoardReference[]) {
+    super("REFERENCED", { messageKey: "errors.REFERENCED.the.object.is.still.referenced.and", messageParams: {} });
+  }
+}
+
 export function ensure(
   value: unknown,
   code: string,

@@ -1213,8 +1213,10 @@ export async function createApp(options: AppOptions) {
       }
       const peer = service.peer(env.id);
       // 启动等待期间归档也须看到忙碌，断线后可用 close 收敛未知状态。
-      if (input.action === "open" && session.status !== "running")
+      if (input.action === "open" && session.status !== "running") {
+        service.sessionAgentForExecution(session);
         store.put("sessions", { status: "running" }, session.id);
+      }
       const result = await peer.call("claude.terminal", {
         sessionId: session.id, rootId: session.rootId, relativePath: session.relativePath, input,
       });

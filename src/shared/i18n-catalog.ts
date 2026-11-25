@@ -1088,6 +1088,10 @@ export const messages = {
     "zh-CN": "请重新评估删除影响并明确确认后保存",
     en: "Re-evaluate the deletion impact and explicitly confirm before saving.",
   },
+  "errors.SESSION_AGENT_DELETED.reselect": {
+    "zh-CN": "原智能体已删除，请重新选择智能体后继续对话。",
+    en: "The original agent was deleted. Select another agent to continue this conversation.",
+  },
   "errors.REFERENCED.an.existing.session.s.project.directory": {
     "zh-CN": "已有会话的项目目录不可迁移",
     en: "An existing session's project directory cannot be moved.",
