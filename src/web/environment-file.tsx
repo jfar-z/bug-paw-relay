@@ -8,7 +8,8 @@ import { t as tr, useLocale, currentLocale, displayError } from "./locale.js";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Modal, Button, ErrorBox, Sections } from "./ui/index.js";
+import { Download, Maximize2, Minimize2 } from "lucide-react";
+import { Modal, IconButton, Button, ErrorBox, Sections } from "./ui/index.js";
 import {
   classifyFileLink,
   previewLimits,
@@ -60,6 +61,8 @@ export function EnvironmentFile({
   const [progress, setProgress] = useState<TransferProgress>();
   const [preparing, setPreparing] = useState(false);
   const [preview, setPreview] = useState<{ url?: string; text?: string }>();
+  const [expanded, setExpanded] = useState(false);
+  const [mediaReady, setMediaReady] = useState(false);
   const [rawText, setRawText] = useState(false);
   const [download, setDownload] = useState("");
   const controller = useRef<AbortController | null>(null);
@@ -154,6 +157,8 @@ export function EnvironmentFile({
     controller.current = abort;
     setError("");
     setBusy(mode);
+    setExpanded(false);
+    setMediaReady(false);
     setRawText(false);
     setPreview(undefined);
     setDownload("");
@@ -263,10 +268,28 @@ export function EnvironmentFile({
         selected.getBoundingClientRect().top - viewport.getBoundingClientRect().top;
     }
   }, [line, previewText, markdown]);
+  const ready = !!preview && !busy && !error &&
+    (preview.text !== undefined || pdf || mediaReady);
+  const fullscreen = ready && expanded;
   return (
     <Modal
+      layout={fullscreen ? "fullscreen" : "default"}
+      onExitFullscreen={() => setExpanded(false)}
+      headerActions={ready && (
+        <>
+          {fullscreen && (
+            <IconButton label={tr("web.download")} icon={<Download />}
+              onClick={() => void transfer("download")} />
+          )}
+          <IconButton
+            label={tr(fullscreen ? "web.exitFullscreenPreview" : "web.fullscreenPreview")}
+            icon={fullscreen ? <Minimize2 /> : <Maximize2 />}
+            onClick={() => setExpanded(!fullscreen)}
+          />
+        </>
+      )}
       title={
-        preview
+        fullscreen && ticket ? ticket.name : preview
           ? tr("web.filePreview")
           : artifactId
             ? tr("web.handoffArtifact")
@@ -274,7 +297,7 @@ export function EnvironmentFile({
       }
       onClose={close}
     >
-      <section className="environment-file">
+      <section className="environment-file" data-fullscreen={fullscreen || undefined}>
         {loading && <p role="status">{tr("web.loadingFileInformation")}</p>}
         <ErrorBox error={error} />
         {!loading && !ticket && (
@@ -439,6 +462,7 @@ export function EnvironmentFile({
                 className="file-media"
                 src={preview.url}
                 alt={ticket.name}
+                onLoad={() => setMediaReady(true)}
                 onError={() => {
                   setPreview(undefined);
                   setError(feedback("web.cannotDecodeImageDownloadToView"));
@@ -452,6 +476,7 @@ export function EnvironmentFile({
                 controls
                 playsInline
                 preload="metadata"
+                onLoadedMetadata={() => setMediaReady(true)}
                 onError={() => {
                   setPreview(undefined);
                   setError(

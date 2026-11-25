@@ -162,3 +162,24 @@
 .artifact-markdown .hljs-number,
 .artifact-markdown .hljs-literal { color: var(--text-primary); font-weight: 700; }
 .artifact-markdown .hljs-comment { color: var(--text-secondary); font-style: italic; }
+
+/* 仅切换现有预览节点的布局，保留滚动容器、内嵌文档和媒体播放器。 */
+.environment-file[data-fullscreen] {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  gap: 6px;
+  padding: 6px 12px;
+}
+.environment-file[data-fullscreen] > :is(.file-name, .file-info, .file-actions) {
+  display: none;
+}
+.environment-file[data-fullscreen] > :is(.file-text, .artifact-markdown, .artifact-document, .file-media) {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  max-height: none;
+  height: 0;
+  overscroll-behavior: contain;
+}

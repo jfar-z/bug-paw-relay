@@ -504,6 +504,7 @@ export function Modal({
   onClose,
   busy = false,
   layout = "default",
+  onExitFullscreen,
   closeOnBackdrop = false,
   trapFocus = true,
   closeLabel = tr("web.close"),
@@ -513,7 +514,8 @@ export function Modal({
   headerActions?: ReactNode;
   onClose: () => void;
   busy?: boolean;
-  layout?: "default" | "viewer";
+  layout?: "default" | "viewer" | "fullscreen";
+  onExitFullscreen?: () => void;
   closeOnBackdrop?: boolean;
   trapFocus?: boolean;
   closeLabel?: string;
@@ -545,7 +547,7 @@ export function Modal({
     <dialog
       ref={ref}
       aria-labelledby={titleId}
-      data-layout={layout === "viewer" ? layout : undefined}
+      data-layout={layout === "default" ? undefined : layout}
       className={closing ? "closing" : ""}
       onKeyDown={(e) => {
         if (!trapFocus || e.key !== "Tab") return;
@@ -573,7 +575,9 @@ export function Modal({
         // 嵌套文件预览只关闭顶层弹窗，避免 Escape 同时关闭工作项。
         e.stopPropagation();
         e.preventDefault();
-        if (!busy) setClosing(true);
+        if (busy) return;
+        if (layout === "fullscreen" && onExitFullscreen) onExitFullscreen();
+        else setClosing(true);
       }}
       onClick={(e) => {
         if (busy || !closeOnBackdrop || e.target !== e.currentTarget) return;

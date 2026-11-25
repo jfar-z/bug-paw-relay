@@ -2023,38 +2023,38 @@ dialog.closing::backdrop {
 }
 
 /* 查看器给应用留出独立滚动区，宿主操作始终在应用之外。 */
-dialog[data-layout="viewer"] {
+dialog:is([data-layout="viewer"], [data-layout="fullscreen"]) {
   --ui-control: 44px;
   width: min(1200px, calc(100vw - 32px));
   height: min(840px, calc(100dvh - 32px));
   max-height: none;
 }
-dialog[data-layout="viewer"][open] {
+dialog:is([data-layout="viewer"], [data-layout="fullscreen"])[open] {
   display: flex;
   flex-direction: column;
 }
-dialog[data-layout="viewer"] > header {
+dialog:is([data-layout="viewer"], [data-layout="fullscreen"]) > header {
   padding: 4px 12px;
   gap: 8px;
 }
-dialog[data-layout="viewer"] > header h2 {
+dialog:is([data-layout="viewer"], [data-layout="fullscreen"]) > header h2 {
   flex: 1;
   max-height: 3.6em;
   overflow: auto;
   min-width: 0;
   overflow-wrap: anywhere;
 }
-dialog[data-layout="viewer"] > header button {
+dialog:is([data-layout="viewer"], [data-layout="fullscreen"]) > header button {
   flex-shrink: 0;
 }
-dialog[data-layout="viewer"] > .modal-body,
-dialog[data-layout="viewer"] .ui-dialog-content {
+dialog:is([data-layout="viewer"], [data-layout="fullscreen"]) > .modal-body,
+dialog:is([data-layout="viewer"], [data-layout="fullscreen"]) .ui-dialog-content {
   display: flex;
   flex: 1;
   flex-direction: column;
   min-height: 0;
 }
-dialog[data-layout="viewer"] > .modal-body {
+dialog:is([data-layout="viewer"], [data-layout="fullscreen"]) > .modal-body {
   padding: 0;
 }
 .ui-embedded-view {
@@ -2102,7 +2102,7 @@ dialog[data-layout="viewer"] > .modal-body {
   padding: 0;
   border: 0;
 }
-dialog[data-layout="viewer"] :is(header button, .ui-embedded-view-controls button) {
+dialog:is([data-layout="viewer"], [data-layout="fullscreen"]) :is(header button, .ui-embedded-view-controls button) {
   min-height: 44px;
   min-width: 44px;
 }
@@ -2126,6 +2126,7 @@ dialog[data-layout="viewer"] :is(header button, .ui-embedded-view-controls butto
 @media (orientation: landscape) {
   .light-viewer-toolbar:has(.light-fullscreen-entry:not([hidden])) { display: flex; }
 }
+dialog[data-layout="fullscreen"],
 dialog[data-layout="viewer"]:has(.ui-embedded-view[data-expanded="true"]) {
   box-sizing: border-box;
   margin: 0;
@@ -2139,4 +2140,11 @@ dialog[data-layout="viewer"]:has(.ui-embedded-view[data-expanded="true"]) {
 }
 .ui-embedded-view[data-expanded="true"] ~ .ui-embedded-view-controls {
   display: none;
+}
+
+/* 单行文件名给全屏工具栏中的固定操作保留触控空间。 */
+dialog[data-layout="fullscreen"] > header h2 {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }

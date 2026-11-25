@@ -1265,6 +1265,8 @@ export const webMessages = {
     "zh-CN": "传输已取消，可以重新尝试",
     en: "Transfer cancelled. You can try again.",
   },
+  "web.fullscreenPreview": { "zh-CN": "全屏预览", en: "Full-screen preview" },
+  "web.exitFullscreenPreview": { "zh-CN": "退出全屏", en: "Exit full screen" },
   "web.filePreview": {
     "zh-CN": "文件预览",
     en: "File preview",

@@ -175,12 +175,14 @@ test("阶段产物开关持久化、离线交接预览下载、HTML 隔离与手
       await page
         .getByRole("button", { name: "查看产物 report.md", exact: true })
         .click();
+      const enter = page.getByRole("button", { name: "全屏预览" });
       let file = page.locator(".environment-file");
       await expect(file).toContainText("服务端交接产物");
       await file.getByRole("button", { name: "预览", exact: true }).click();
       await expect(
         file.getByRole("heading", { name: "交付报告" }),
       ).toBeVisible();
+      await enter.click();
       await checkAttachmentExamples(file.locator(".artifact-markdown"));
       await file.locator(".attachment-diagram").first().screenshot({
         path: `.vibe/artifacts/flow-${width}.png`,
@@ -199,7 +201,7 @@ test("阶段产物开关持久化、离线交接预览下载、HTML 隔离与手
       await expect(code.getByRole("status")).toHaveText("已复制代码");
       expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(codeBody);
       const savedReport = page.waitForEvent("download");
-      await file.getByRole("button", { name: "下载", exact: true }).click();
+      await page.getByRole("button", { name: "下载", exact: true }).click();
       expect(await readFile((await (await savedReport).path())!, "utf8")).toBe(report);
       await file.getByRole("button", { name: "关闭", exact: true }).click();
 
@@ -218,6 +220,7 @@ test("阶段产物开关持久化、离线交接预览下载、HTML 隔离与手
           .frameLocator('iframe[title="HTML 产物预览"]')
           .getByRole("heading", { name: "静态测试报告" }),
       ).toBeVisible();
+      await enter.click();
       expect(await page.locator("body").getAttribute("data-unsafe")).toBeNull();
       await expect(
         page
@@ -229,7 +232,10 @@ test("阶段产物开关持久化、离线交接预览下载、HTML 隔离与手
         fullPage: true,
       });
       await page.keyboard.press("Escape");
+      await expect(enter).toBeVisible();
+      await page.keyboard.press("Escape");
       await expect(page.locator(".environment-file")).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "查看产物 report.html" })).toBeFocused();
       await expect(detail).toBeVisible();
       await page
         .getByRole("button", { name: "查看产物 archive.zip", exact: true })
@@ -258,13 +264,16 @@ test("阶段产物开关持久化、离线交接预览下载、HTML 隔离与手
       ).toBeEnabled();
       await file.getByRole("button", { name: "预览", exact: true }).click();
       await expect(file.locator('iframe[title="PDF 产物预览"]')).toBeVisible();
+      await enter.click();
       // 等待浏览器内置 PDF 阅读器完成首屏绘制后留存截图。
       await page.waitForTimeout(1000);
       await page.screenshot({
         path: `.vibe/artifacts/pdf-${width}.png`,
         fullPage: true,
       });
-      await file.getByRole("button", { name: "关闭", exact: true }).click();
+      await page.locator('dialog[data-layout="fullscreen"] > header').getByRole("button", { name: "关闭" }).click();
+      await expect(file).toHaveCount(0);
+      await expect(detail).toBeVisible();
       await page.screenshot({
         path: `.vibe/artifacts/handoff-${width}.png`,
         fullPage: true,

@@ -166,7 +166,10 @@ test("环境文件弹窗、分块进度、文本图片视频预览、下载与�
         recorder.onstop = () => resolve(new Blob(chunks));
       });
       recorder.start();
-      await new Promise((r) => setTimeout(r, 350));
+      for (let frame = 0; frame < 5; frame++) {
+        ctx.fillRect(frame, frame, 2, 2);
+        await new Promise((r) => setTimeout(r, 100));
+      }
       recorder.stop();
       const blob = await complete;
       stream.getTracks().forEach((t) => t.stop());
@@ -201,6 +204,7 @@ test("环境文件弹窗、分块进度、文本图片视频预览、下载与�
     await dialog.getByRole("button", { name: "预览", exact: true }).click();
     await expect(dialog.getByLabel("文件传输进度")).toBeVisible();
     await expect(dialog.locator(".file-progress")).toContainText("/s");
+    await expect(dialog.getByRole("button", { name: "全屏预览" })).toHaveCount(0);
     const formatted = dialog.locator(".artifact-markdown");
     await expect(formatted.getByRole("heading", { name: "文件标题" })).toBeVisible({ timeout: 30000 });
     await checkAttachmentExamples(formatted);
@@ -239,6 +243,20 @@ test("环境文件弹窗、分块进度、文本图片视频预览、下载与�
     expect(geometry.top).toBeGreaterThanOrEqual(-1);
     expect(geometry.top).toBeLessThan(geometry.viewportHeight);
     expect(geometry.horizontalOverflow).toBe(0);
+    // 旋转设备与切换布局共用原阅读节点，不能重新读取文件。
+    const enter = dialog.getByRole("button", { name: "全屏预览" });
+    await enter.tap();
+    for (const viewport of [{ width: 320, height: 740 }, { width: 740, height: 320 }]) {
+      await page.setViewportSize(viewport);
+      await expect(dialog).toHaveAttribute("data-layout", "fullscreen");
+      expect(await dialog.boundingBox()).toEqual({ x: 0, y: 0, ...viewport });
+      await expect(dialog.getByRole("button", { name: "退出全屏" })).toBeInViewport();
+      await expect(raw).toHaveAttribute("aria-pressed", "true");
+      await expect(selected.locator("span")).toHaveText("30");
+    }
+    await dialog.getByRole("button", { name: "退出全屏" }).tap();
+    await expect(enter).toBeFocused();
+    expect(reads).toBe(renderedReads);
     await page.setViewportSize({ width: 1440, height: 1000 });
     expect(reads).toBeGreaterThan(1);
     await page.screenshot({ path: ".vibe/files-desktop.png" });
@@ -275,6 +293,23 @@ test("环境文件弹窗、分块进度、文本图片视频预览、下载与�
             ),
         )
         .toBeGreaterThan(0);
+      const media = await dialog.locator(selector).elementHandle();
+      const position = await media!.evaluate(async (element) => {
+        if (!(element instanceof HTMLVideoElement)) return 0;
+        await element.play();
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        element.pause();
+        return element.currentTime;
+      });
+      await enter.click();
+      await expect(dialog.locator(selector)).toBeInViewport();
+      expect(await media!.evaluate((el) => el.isConnected)).toBe(true);
+      if (selector.startsWith("video")) {
+        expect(position).toBeGreaterThan(0);
+        expect(await media!.evaluate((el) => (el as HTMLVideoElement).currentTime)).toBe(position);
+      }
+      await page.keyboard.press("Escape");
+      await expect(enter).toBeVisible();
       await dialog
         .getByRole("button", { name: "关闭", exact: true })
         .last()
@@ -379,7 +414,9 @@ test("环境文件弹窗、分块进度、文本图片视频预览、下载与�
       await page.getByRole("button", { name: "阶段文档" }).click();
       await dialog.getByRole("button", { name: "Preview", exact: true }).click();
       await expect(formatted.getByRole("heading")).toHaveText("文件标题");
+      await dialog.getByRole("button", { name: "Full-screen preview" }).tap();
       await checkAttachmentExamples(formatted);
+      await dialog.getByRole("button", { name: "Exit full screen" }).tap();
       await expect(formatted.locator(".file-warning").first()).toContainText("Cannot display");
       await expect(markdown).toHaveAttribute("aria-pressed", "true");
       await dialog.getByRole("button", { name: "Raw text" }).tap();
