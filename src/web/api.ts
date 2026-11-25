@@ -1,3 +1,5 @@
+import { z } from "zod";
+import type { AgentBoardReference } from "../shared/contracts.js";
 import { errorKey, safeMessageParams } from "../shared/i18n-errors.js";
 import {
   FeedbackError,
@@ -6,6 +8,27 @@ import {
   type UiFeedback,
 } from "./locale.js";
 import { t as tr, useLocale, currentLocale, displayError } from "./locale.js";
+/** 旧服务或不完整详情均使用位置未知提示，避免把解析失败解释为没有引用。 */
+const boardReferences = z.array(z.object({
+  boardId: z.string().min(1),
+  boardName: z.string().nullable(),
+  projectId: z.string().nullable(),
+  projectName: z.string().nullable(),
+  archived: z.boolean(),
+  stages: z.array(z.object({
+    id: z.string().min(1),
+    name: z.string().nullable(),
+    shortId: z.string().nullable(),
+    nameKey: z.enum(["board.stage.notStarted", "board.stage.done"]).optional(),
+  })).min(1),
+})).min(1);
+
+export class AgentDeletionBlocked extends FeedbackError {
+  constructor(public readonly references?: AgentBoardReference[]) {
+    super(feedback("web.agentDeletion.blocked"));
+  }
+}
+
 let retryAt = 0;
 
 /** 同一标签页的后台读取共用服务端退避期限，写操作仍由用户发起。 */
@@ -91,6 +114,10 @@ export async function api(
     throw failure();
   }
   if (!response.ok) {
+    if (method === "DELETE" && /^\/agents\/[^/]+$/.test(path) && data?.code === "REFERENCED") {
+      const parsed = boardReferences.safeParse(data.boardReferences);
+      throw new AgentDeletionBlocked(parsed.success ? parsed.data : undefined);
+    }
     const key = data ? errorKey(data) : fallback;
     const error = Object.assign(
       new FeedbackError({

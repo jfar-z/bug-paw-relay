@@ -493,3 +493,109 @@ test("智能体排序的桌面、键盘与手机交互", async ({ page, context,
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+/** 阻断详情必须来自当次删除响应，同时保护详情草稿与历史会话的输入。 */
+test("删除智能体展示当次看板引用，解除引用后旧会话显式换选", async ({ page, context }) => {
+  const dir = mkdtempSync(join(tmpdir(), "relay-delete-browser-"));
+  const options = { dataDir: dir, publicUrl: "http://127.0.0.1", webDir: resolve("dist/web"), secureCookie: false };
+  const { app, store, service } = await createApp(options);
+  try {
+    const cookie = randomUUID();
+    store.put("users", { username: "fixture" }, "owner");
+    store.db.prepare("INSERT INTO auth_sessions VALUES(?,?,?)").run(digest(cookie), "owner", Date.now() + 600000);
+    const env = store.put("environments", { name: "Env", approved: true, roots: [] });
+    service.peers.set(env.id, { call: async () => ({ events: [], interactions: [] }), close: () => {} } as any);
+    const directory = { environmentId: env.id, rootId: "root", relativePath: "." };
+    const project = service.save("projects", { name: "Project", directories: [directory] });
+    const original = service.save("agents", { name: "Alpha" });
+    const replacement = service.save("agents", { name: "Bravo" });
+    const session = service.createSession({ title: "Existing", projectId: project.id, ...directory, runtime: "codex", agentId: original.id });
+    const executionId = randomUUID();
+    store.db.prepare("INSERT INTO executions VALUES(?,?,?,?,?,?,?)").run(executionId, null, session.id, env.id,
+      "completed", JSON.stringify({ agent: original }), new Date().toISOString());
+    const history = { events: [{ sequence: 1, executionId, type: "item/completed",
+      data: { item: { id: "reply", type: "agentMessage", text: "Existing reply" } } }], interactions: [] };
+    service.peers.set(env.id, { call: async () => history, close: () => {} } as any);
+    const stages = Array.from({ length: 40 }, (_, index) => ({
+      id: randomUUID(), shortId: "S" + (index + 1), name: "部署".repeat(45), agentId: original.id,
+    }));
+    const board = store.put("boards", { name: "Board", archived: true, projectId: project.id, stages });
+    await app.listen({ host: "127.0.0.1", port: 0 });
+    const url = options.publicUrl = `http://127.0.0.1:${(app.server.address() as { port: number }).port}`;
+    await context.addCookies([{ name: "relay_session", value: cookie, url }]);
+    for (const english of [false, true]) {
+      service.saveLanguage({ preference: english ? "en" : "zh-CN" });
+      await page.setViewportSize(english ? { width: 390, height: 844 } : { width: 1440, height: 1000 });
+      await page.goto(url + "/#agents");
+      await page.reload();
+      await page.locator(".agent-list-item").filter({ hasText: "Alpha" }).click();
+      const trigger = page.locator(".agent-editor-footer button");
+      const draft = page.locator(".agent-editor input").first();
+      await draft.fill("Alpha draft");
+      const dialog = page.getByRole("dialog");
+      await trigger.click();
+      await dialog.getByRole("button", { name: english ? "Cancel" : "取消", exact: true }).click();
+      await expect(draft).toHaveValue("Alpha draft");
+      for (const theme of ["light", "dark", "bug"]) {
+        await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
+        await trigger.click();
+        await dialog.getByRole("button", { name: english ? "Confirm" : "确认", exact: true }).click();
+        await expect(dialog).toHaveAccessibleName(english ? "Cannot delete agent" : "无法删除智能体");
+        await expect(dialog.getByRole("listitem")).toHaveCount(40);
+        await expect(dialog).toContainText("Project");
+        await expect(dialog).toContainText(english ? /archived/i : "已归档");
+        await dialog.screenshot({ path: `.vibe/agent-deletion-${english ? "en" : "zh"}-${theme}.png`, animations: "disabled" });
+        await dialog.getByRole("listitem").last().scrollIntoViewIfNeeded();
+        expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+        await expect(dialog.getByRole("button")).toBeInViewport();
+        await page.keyboard.press("Escape");
+        await expect(trigger).toBeFocused();
+        await expect(draft).toHaveValue("Alpha draft");
+      }
+    }
+    const trigger = page.locator(".agent-editor-footer button");
+    const dialog = page.getByRole("dialog");
+    const remove = async () => {
+      await trigger.click();
+      await dialog.getByRole("button", { name: "Confirm", exact: true }).click();
+    };
+    store.put("boards", { stages: stages.slice(0, 1) }, board.id);
+    await remove();
+    await expect(dialog.getByRole("listitem")).toHaveCount(1);
+    await page.keyboard.press("Escape");
+    await page.route("**/api/agents/" + original.id, route => route.fulfill({
+      status: 400, contentType: "application/json", body: JSON.stringify({ code: "REFERENCED" }),
+    }), { times: 1 });
+    await remove();
+    await expect(dialog).toContainText("specific locations are currently unavailable");
+    await page.keyboard.press("Escape");
+    await page.route("**/api/agents/" + original.id, route => route.abort(), { times: 1 });
+    await remove();
+    await expect(dialog.getByRole("alert")).toBeVisible();
+    await page.keyboard.press("Escape");
+    store.remove("boards", board.id);
+    await remove();
+    await expect(page.locator(".agent-list-item").filter({ hasText: "Alpha" })).toHaveCount(0);
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto(url + "/#chat/" + session.id);
+    await expect(page.getByText(/The original agent was deleted/)).toBeVisible();
+    const composer = page.locator(".session-composer-toolbar").locator("..").locator("textarea");
+    await composer.fill("draft");
+    await composer.press("Enter");
+    await expect(composer).toHaveValue("draft");
+    const send = page.getByRole("button", { name: "Send", exact: true });
+    await expect(send).toBeDisabled();
+    await page.getByRole("button", { name: /session agent/i }).click();
+    await page.getByRole("option", { name: "Bravo", exact: true }).click();
+    await expect(send).toBeEnabled();
+    await expect(composer).toHaveValue("draft");
+    await expect(page.locator(".messages .message-identity")).toContainText("Alpha");
+    expect(store.get("sessions", session.id)).toMatchObject({
+      agentId: replacement.id, permission: session.permission, ...directory, runtime: "codex",
+    });
+  } finally {
+    await page.close();
+    await app.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -450,6 +450,8 @@ export function Sessions({
   const currentAgent = state.agents.find(
     (a: SessionAgent) => a.id === session?.agentId,
   );
+  // 仅完整智能体索引可以区分已删除与当前环境不可用。
+  const deletedAgent = !!session?.agentId && !currentAgent;
   const avatar = (
     <Avatar
       small
@@ -563,6 +565,7 @@ export function Sessions({
     if (
       (!text.trim() && !uploads.attachments.length) ||
       uploads.blocked ||
+      deletedAgent ||
       busy ||
       configuring ||
       (active && (literal || slashInput(text)?.name !== "resume")) ||
@@ -682,6 +685,13 @@ export function Sessions({
       refreshHistory.current();
     } catch (e) {
       if (current.current !== id) return;
+      if (e instanceof Error && "code" in e && e.code === "SESSION_AGENT_DELETED") {
+        setPending(null);
+        sendIdentity.current = null;
+        setError(caughtFeedback(e));
+        void refreshState.current?.();
+        return;
+      }
       if (command || literal) {
         setCommandError(caughtFeedback(e));
         setPending(null);
@@ -731,6 +741,42 @@ export function Sessions({
       if (current.current === id) setConfiguring(false);
     }
   };
+  const agentPicker = (closeSignal?: string) => compatibleAgents.length ? (
+      <Select
+        label={tr("web.sessionAgent")}
+        closeSignal={closeSignal}
+        iconOnly
+        trigger={avatar}
+        value={session.agentId || ""}
+        options={compatibleAgents.map((a: SessionAgent) =>
+          agentOption(a, compatibleAgents)
+        )}
+        disabled={active || busy || configuring || !!session.archived}
+        onChange={(agentId) => void configure({ agentId })}
+      />
+    ) : (
+      <Button
+        shape="icon"
+        variant="ghost"
+        aria-label={tr("web.sessionAgent")}
+        disabled={active || busy || configuring || !!session.archived}
+        onClick={() => setShowAgentNotice(true)}
+      >
+        {avatar}
+      </Button>
+    );
+  const historicalAgents = new Map<string, { id: string; name: string }>(
+    (history?.executionStarts || []).filter((run: any) => run.agent).map((run: any) => [run.id, run.agent]),
+  );
+  const knownAgents = new Map([...historicalAgents.values()].map(agent => [agent.id, agent]));
+  function messageAgent(executionId?: string) {
+    // 旧原生历史可能缺少执行编号，仅在历史身份唯一时沿用该身份。
+    const original = executionId ? historicalAgents.get(executionId) :
+      knownAgents.size === 1 ? knownAgents.values().next().value : undefined;
+    if (original) return { name: original.name, avatar: state.agents.find((a: SessionAgent) => a.id === original.id)?.avatar };
+    if (!knownAgents.size && currentAgent) return currentAgent;
+    return { name: deletedAgent && !knownAgents.size ? session.agentId : session.runtime === "claude" ? "Claude" : "Codex" };
+  }
   const events = historyEvents(
     history
       ? {
@@ -1103,6 +1149,9 @@ export function Sessions({
               <Status value={status} />
             </Modal>}
             {!list && <ErrorBox error={error} />}
+            {native && deletedAgent && (
+              <div><p role="status">{tr("errors.SESSION_AGENT_DELETED.reselect")}</p>{agentPicker()}</div>
+            )}
             {native ? (
               <Suspense fallback={<p role="status">{tr("web.native.status.opening")}</p>}>
                 <ClaudeTerminal
@@ -1110,7 +1159,7 @@ export function Sessions({
                   sessionId={session.id}
                   autoOpen={autoTerminal === session.id}
                   online={!!environment?.online}
-                  disabled={!runtimeEnabled || !!session.archived || !!environment?.revoked}
+                  disabled={!runtimeEnabled || !!session.archived || !!environment?.revoked || (deletedAgent && status !== "running")}
                   canClose={!session.archived && !environment?.revoked}
                   running={status === "running"}
                   onChanged={() => {
@@ -1206,15 +1255,7 @@ export function Sessions({
                       sessionId={session.id}
                       online={!!environment?.online}
                       showIdentity={group.showIdentity}
-                      agent={
-                        state.agents.find(
-                          (agent: any) => agent.id === session.agentId,
-                        ) || {
-                          name:
-                            session.runtime === "claude" ? "Claude" : "Codex",
-                          avatar: "",
-                        }
-                      }
+                      agent={messageAgent(group.event.executionId)}
                       onFile={(href: string) => {
                         fileSession.current = session.id;
                         setFileHref(href);
@@ -1368,6 +1409,7 @@ export function Sessions({
                 <Button
                   variant="ghost"
                   disabled={
+                    deletedAgent ||
                     busy ||
                     active ||
                     configuring ||
@@ -1388,7 +1430,7 @@ export function Sessions({
                     agentAvailable(a, session.environmentId, session.runtime),
                 ) && (
                   <p className="error">
-                    {tr("web.theCurrentAgentNoLongerAppliesToThisSession")}
+                    {tr(deletedAgent ? "errors.SESSION_AGENT_DELETED.reselect" : "web.theCurrentAgentNoLongerAppliesToThisSession")}
                   </p>
                 )}
               <div className="composer-bottom session-composer-toolbar">
@@ -1397,30 +1439,7 @@ export function Sessions({
                     <SessionConfiguration sessionId={session.id}>
                       {(closeSignal) => (
                         <>
-                          {compatibleAgents.length ? (
-                            <Select
-                              label={tr("web.sessionAgent")}
-                              closeSignal={closeSignal}
-                              iconOnly
-                              trigger={avatar}
-                              value={session.agentId || ""}
-                              options={compatibleAgents.map((a: SessionAgent) =>
-                                agentOption(a, compatibleAgents)
-                              )}
-                              disabled={active || busy || configuring || !!session.archived}
-                              onChange={(agentId) => void configure({ agentId })}
-                            />
-                          ) : (
-                            <Button
-                              shape="icon"
-                              variant="ghost"
-                              aria-label={tr("web.sessionAgent")}
-                              disabled={active || busy || configuring || !!session.archived}
-                              onClick={() => setShowAgentNotice(true)}
-                            >
-                              {avatar}
-                            </Button>
-                          )}
+                          {agentPicker(closeSignal)}
                           <RuntimeOptionsEditor
                             key={"runtime-" + session.id}
                             compact
@@ -1504,6 +1523,7 @@ export function Sessions({
                     aria-label={tr("web.send")}
                     title={tr("web.sendEnter")}
                     disabled={
+                      deletedAgent ||
                       configuring ||
                       busy ||
                       session.archived ||

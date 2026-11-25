@@ -205,11 +205,13 @@ export class Service {
     const current = this.store.get("sessions", id);
     // 兼容没有事件时间的连接器，以平台执行账本提供会话时间线的时间边界。
     const executionStarts = this.store.db
-      .prepare("SELECT id, created_at AS createdAt, json_extract(snapshot,'$.boardIds') AS boardIds FROM executions WHERE session_id=?")
+      .prepare("SELECT id, created_at AS createdAt, json_extract(snapshot,'$.boardIds') AS boardIds, json_extract(snapshot,'$.agent.id') AS agentId, json_extract(snapshot,'$.agent.name') AS agentName FROM executions WHERE session_id=?")
       .all(id);
     return {
       ...sessionDisplay(history),
-      executionStarts: executionStarts.map(({ id, createdAt, boardIds }) => ({ id, createdAt,
+      executionStarts: executionStarts.map(({ id, createdAt, boardIds, agentId, agentName }) => ({ id, createdAt,
+        // 仅向时间线提供历史身份，不传递职责、模型配置等执行参数。
+        ...(typeof agentId === "string" ? { agent: { id: agentId, name: agentName || agentId } } : {}),
         ...(typeof boardIds === "string" ? { boardIds: JSON.parse(boardIds) } : {}) })),
       ...(history.boardCards ? { boardCards: history.boardCards } : {}),
       // 问答契约是纯文本结构，必须逐字回显，不能套用工具日志的长编码裁剪。

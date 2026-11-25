@@ -1,5 +1,10 @@
 /** 两套界面的产品文案使用稳定语义键；用户内容不进入资源表。 */
 export const webMessages = {
+  "web.agentDeletion.confirm": {"zh-CN": "删除智能体「{name}」？已有会话和历史会保留。下次继续这些会话前，需要重新选择智能体。", "en": "Delete “{name}”? Existing conversations and their history will be kept. Select another agent before continuing those conversations."},
+  "web.agentDeletion.blocked": {"zh-CN": "无法删除智能体", "en": "Cannot delete agent"},
+  "web.agentDeletion.locations": {"zh-CN": "以下看板阶段仍在使用「{name}」（共 {count} 处）。请先在对应看板的流程配置中更换智能体，再重试删除。", "en": "Board stages still using “{name}” ({count} total) are listed below. Change the agent in each board’s workflow before trying again."},
+  "web.agentDeletion.unavailable": {"zh-CN": "「{name}」仍被引用，具体位置暂不可用。", "en": "“{name}” is still referenced. The specific locations are currently unavailable."},
+  "web.agentDeletion.missing": {"zh-CN": "名称缺失", "en": "Name unavailable"},
   "web.boardCard.open": {"zh-CN": "打开工作项", "en": "Open work item"},
   "web.boardCard.acceptance": {"zh-CN": "验收条件", "en": "Acceptance criteria"},
   "web.boardCard.target": {"zh-CN": "材料目的地", "en": "Material destination"},

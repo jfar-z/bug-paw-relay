@@ -1,9 +1,12 @@
+import { AgentDeletionBlocked } from "./api.js";
+import type { AgentBoardReference } from "../shared/contracts.js";
 import { Avatar } from "./avatar.js";
 import { AgentOrderList } from "./agent-order.js";
 import { Badge } from "./ui/index.js";
 import {
   Page,
   PageHeading,
+  Dialog,
   NavigationButton,
   SurfaceButton,
   SettingsLayout as SettingsFrame,
@@ -33,6 +36,28 @@ export function AgentsPage({ state, edit, confirm, onSaved, saveOrder }: any) {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState("");
   const [dirty, setDirty] = useState(false);
+  const [deletion, setDeletion] = useState<{
+    id: string; name: string; blocked?: boolean; references?: AgentBoardReference[];
+  } | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<UiFeedback>("");
+  async function removeSelected() {
+    if (!deletion || deleting) return;
+    setDeleting(true);
+    setDeleteError("");
+    try {
+      await api("/agents/" + deletion.id, {}, "DELETE");
+      setDeletion(null);
+      setDirty(false);
+      await onSaved();
+    } catch (error) {
+      if (error instanceof AgentDeletionBlocked)
+        setDeletion({ ...deletion, blocked: true, references: error.references });
+      else setDeleteError(caughtFeedback(error));
+    } finally {
+      setDeleting(false);
+    }
+  }
   const change = (apply: () => void) => {
     if (dirty)
       confirm(tr("web.discardUnsavedAgentChanges"), async () => {
@@ -182,15 +207,10 @@ export function AgentsPage({ state, edit, confirm, onSaved, saveOrder }: any) {
 
                   aria-label={tr("web.delete")}
                   title={tr("web.deleteAgent")}
-                  onClick={() =>
-                    confirm(
-                      tr("web.deleteAgentAlternative448") + agent.name + "？",
-                      async () => {
-                        await api("/agents/" + agent.id, {}, "DELETE");
-                        await onSaved();
-                      },
-                    )
-                  }
+                  onClick={() => {
+                    setDeleteError("");
+                    setDeletion({ id: agent.id, name: agent.name });
+                  }}
                 >
                   <Trash2 aria-hidden="true" />
                 </Button>
@@ -211,6 +231,48 @@ export function AgentsPage({ state, edit, confirm, onSaved, saveOrder }: any) {
           </Empty>
         )}
       </div>
+      {deletion && (
+        <Dialog key={deletion.blocked ? "blocked" : "confirm"}
+          title={tr(deletion.blocked ? "web.agentDeletion.blocked" : "web.confirmOperation")}
+          busy={deleting} onClose={() => setDeletion(null)}>
+          {deletion.blocked ? (
+            <>
+              {deletion.references ? (
+                <>
+                  <p>{tr("web.agentDeletion.locations", {
+                    name: deletion.name,
+                    count: deletion.references.reduce((sum, board) => sum + board.stages.length, 0),
+                  })}</p>
+                  {deletion.references.map(board => (
+                    <section key={board.boardId}>
+                      <h3>{board.boardName || tr("web.agentDeletion.missing")}
+                        {(!board.boardName || deletion.references?.some(other =>
+                          other.boardId !== board.boardId && other.boardName === board.boardName
+                        )) && ` · ${board.boardId}`}
+                      </h3>
+                      <p>{tr("web.project")} · {board.projectName || [tr("web.agentDeletion.missing"), board.projectId].filter(Boolean).join(" · ")}
+                        {board.archived && <> · <Badge>{tr("web.archived")}</Badge></>}
+                      </p>
+                      <ul>{board.stages.map(stage => (
+                        <li key={stage.id}>{stage.shortId || stage.id} · {stage.nameKey ? tr(stage.nameKey) : stage.name || tr("web.agentDeletion.missing")}</li>
+                      ))}</ul>
+                    </section>
+                  ))}
+                </>
+              ) : <p>{tr("web.agentDeletion.unavailable", { name: deletion.name })}</p>}
+            </>
+          ) : (
+            <>
+              <p>{tr("web.agentDeletion.confirm", { name: deletion.name })}</p>
+              <ErrorBox error={deleteError} />
+              <footer>
+                <Button data-initial-focus disabled={deleting} onClick={() => setDeletion(null)}>{tr("web.cancel")}</Button>
+                <Button variant="danger" disabled={deleting} onClick={() => void removeSelected()}>{tr("web.confirm")}</Button>
+              </footer>
+            </>
+          )}
+        </Dialog>
+      )}
     </Page>
   );
 }
