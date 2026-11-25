@@ -3,6 +3,7 @@ import { AttachmentLink } from "./session-attachments.js";
 import { t as tr, useLocale, currentLocale, displayError } from "./locale.js";
 import { classifyFileLink } from "../shared/files.js";
 import {
+  Fragment,
   memo,
   createContext,
   useContext,
@@ -24,6 +25,7 @@ import {
   CircleCheck,
   CircleAlert,
   CircleSlash,
+  ShieldCheck,
 } from "lucide-react";
 import { Button } from "./ui/index.js";
 
@@ -416,46 +418,54 @@ export function WorkbenchActivityGroup({
       </SurfaceButton>
       <div className="workbench-activity-rail" hidden={!expanded}>
         {blocks.map((block) => (
-          <details className="workbench-activity" key={block.id}>
-            <summary>
-              {block.status === "running" ? (
-                <LoaderCircle className="spin" aria-hidden="true" />
-              ) : block.status === "failed" ? (
-                <CircleAlert aria-hidden="true" />
-              ) : ["cancelled", "denied"].includes(block.status) ? (
-                <CircleSlash aria-hidden="true" />
-              ) : block.status === "completed" ? (
-                <CircleCheck aria-hidden="true" />
-              ) : (
-                <Wrench aria-hidden="true" />
-              )}
-              <span>
-                {nativeNames ? block.name : names[block.name] || block.name}
-              </span>
-              <small>{labels[block.status] || block.status}</small>
-            </summary>
-            <div className="workbench-activity-detail">
-              <small>{block.name}</small>
-              {block.arguments !== undefined && (
-                <>
-                  <h4>{tr("web.callArguments")}</h4>
-                  <pre>{prettyActivity(block.arguments)}</pre>
-                </>
-              )}
-              {block.raw !== undefined && (
-                <>
-                  <h4>{tr("web.rawData")}</h4>
-                  <pre>{prettyActivity(block.raw)}</pre>
-                </>
-              )}
-              {block.output != null && (
-                <>
-                  <h4>{tr("web.executionResult")}</h4>
-                  <pre>{prettyActivity(block.output)}</pre>
-                </>
-              )}
-            </div>
-          </details>
+          <Fragment key={block.id}>
+            <details className="workbench-activity">
+              <summary>
+                {block.status === "running" ? (
+                  <LoaderCircle className="spin" aria-hidden="true" />
+                ) : block.status === "failed" ? (
+                  <CircleAlert aria-hidden="true" />
+                ) : ["cancelled", "denied"].includes(block.status) ? (
+                  <CircleSlash aria-hidden="true" />
+                ) : block.status === "completed" ? (
+                  <CircleCheck aria-hidden="true" />
+                ) : (
+                  <Wrench aria-hidden="true" />
+                )}
+                <span>
+                  {nativeNames ? block.name : names[block.name] || block.name}
+                </span>
+                <small>{labels[block.status] || block.status}</small>
+              </summary>
+              <div className="workbench-activity-detail">
+                <small>{block.name}</small>
+                {block.arguments !== undefined && (
+                  <>
+                    <h4>{tr("web.callArguments")}</h4>
+                    <pre>{prettyActivity(block.arguments)}</pre>
+                  </>
+                )}
+                {block.raw !== undefined && (
+                  <>
+                    <h4>{tr("web.rawData")}</h4>
+                    <pre>{prettyActivity(block.raw)}</pre>
+                  </>
+                )}
+                {block.output != null && (
+                  <>
+                    <h4>{tr("web.executionResult")}</h4>
+                    <pre>{prettyActivity(block.output)}</pre>
+                  </>
+                )}
+              </div>
+            </details>
+            {block.autoApprovals?.map((id: string) => (
+              <p className="activity-auto-approval" key={id}>
+                <ShieldCheck size={14} aria-hidden="true" />
+                {tr("web.approval.auto")}
+              </p>
+            ))}
+          </Fragment>
         ))}
       </div>
     </section>

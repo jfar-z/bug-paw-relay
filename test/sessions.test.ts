@@ -910,3 +910,34 @@ test("轻应用按唯一轮次或发布时间定位，早于缓冲的记录随�
     ["early", "light:old", "middle", "middle-answer"],
   );
 });
+
+test("错序和重复自动批准按原生调用归属，旧记录与跨执行记录保留原位", () => {
+  const approval = (sequence: number, interactionId: string, itemId?: string, executionId = "run") =>
+    ({ sequence, executionId, type: "relay/approval/auto", data: { interactionId, itemId } });
+  const first = approval(1, "one", "b");
+  const second = approval(2, "two", "b");
+  const legacy = approval(3, "legacy");
+  const foreign = approval(1, "foreign", "a", "other");
+  for (const runtime of ["codex", "claude"]) {
+    const calls = ["a", "b"].map((id, index) => runtime === "codex"
+      ? { sequence: 5 + index, executionId: "run", type: "item/completed",
+          data: { item: { id, type: "commandExecution", status: "failed" } } }
+      : { sequence: 5 + index, executionId: "run", type: "assistant",
+          data: { type: "assistant", uuid: id, message: { content: [{ type: "tool_use", id, name: "Write" }] } } });
+    const rows = historyEvents({
+      events: [first, legacy, ...calls, foreign],
+      autoApprovalEvents: [first, second, approval(4, "one", "b")],
+    });
+    assert.deepEqual(rows.filter(r => r.type === first.type).map(r => r.data.interactionId), ["legacy", "foreign"]);
+    const blocks = sessionTimeline(rows).flatMap(g => g.blocks || []);
+    assert.deepEqual(blocks.map(b => b.autoApprovals?.length ?? 0), [0, 2]);
+    if (runtime === "codex") assert.equal(blocks[1].status, "failed");
+    const nativeHistory = runtime === "codex"
+      ? { thread: { turns: [{ id: "turn", items: calls.map(c => c.data.item) }] } }
+      : calls.map(c => c.data);
+    const ambiguous = historyEvents({ nativeHistory, autoApprovalEvents: [first, approval(1, "other", "b", "other")] });
+    assert.equal(ambiguous.filter(r => r.type === first.type).length, 2);
+    const restored = historyEvents({ nativeHistory, autoApprovalEvents: [first, second] });
+    assert.deepEqual(restored.map(r => r.autoApprovals?.length ?? 0), [0, 2]);
+  }
+});

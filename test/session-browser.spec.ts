@@ -1,3 +1,4 @@
+import { changeServerLanguage } from "./browser-language.js";
 import { workflowPrompt } from "../src/shared/stage-handoff.js";
 import { createServer } from "node:net";
 import { checkSessionDrawer, checkLongChatTitle } from "./brand-browser.js";
@@ -46,6 +47,7 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
   let snapshotEvents: any[] = [];
   let nativeHistory: any = { thread: { turns: [] } };
   let sequence = 0;
+  let autoApprovalEvents: any[] = [];
   let snapshotStatus = "idle";
   let historyReads = 0;
   let snapshotGap = false;
@@ -57,6 +59,7 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
         return {
           title: "环境端标题",
           events: snapshotEvents,
+          autoApprovalEvents,
           nativeHistory,
           gap: snapshotGap,
           status: snapshotStatus,
@@ -537,6 +540,7 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
     await expect(
       page.locator(".messages").getByText("正在检查项目", { exact: true }),
     ).toBeVisible();
+    emit("relay/approval/auto", { interactionId: "approval-tool", itemId: "tool", source: "policy" });
     emit("item/started", {
       item: { id: "tool", type: "commandExecution", command: "pwd" },
     });
@@ -544,6 +548,14 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
       itemId: "tool",
       delta: "/workspace",
     });
+    const attachedApproval = page.locator("details.workbench-activity + .activity-auto-approval");
+    await expect(attachedApproval).toHaveText("已自动批准");
+    const groupToggle = page.locator(".workbench-activity-group button").first();
+    await groupToggle.focus();
+    await groupToggle.press("Enter");
+    await expect(attachedApproval).toBeHidden();
+    await groupToggle.press("Enter");
+    await expect(attachedApproval).toBeVisible();
     await page.locator(".workbench-activity summary").click();
     await expect(page.locator(".workbench-activity-detail")).toContainText(
       "/workspace",
@@ -615,7 +627,8 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
       page.getByRole("menuitem", { name: "会话详情", exact: true }),
     ).toBeFocused();
     await page.keyboard.press("Escape");
-    snapshotEvents = [...allEvents];
+    autoApprovalEvents = allEvents.filter(e => e.type === "relay/approval/auto");
+    snapshotEvents = allEvents.filter(e => e.type !== "relay/approval/auto");
     snapshotStatus = "running";
     await page.reload();
     await expect(
@@ -623,6 +636,7 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
     ).toBeVisible();
     await expect(page.locator(".messages .user-message")).toHaveCount(1);
     await expect(page.locator(".native-retry")).toContainText("模型连接已恢复");
+    await expect(attachedApproval).toBeVisible();
     // 环境断连保留草稿与已收到正文；恢复只对账，不自动重放发送。
     const originalExecution = executionId;
     await input.fill("断连后保留的草稿");
@@ -699,7 +713,7 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
     emit("item/completed", {
       item: { id: "a", type: "agentMessage", text: "检查完成，无需切换会话" },
     });
-    snapshotEvents = [...allEvents];
+    snapshotEvents = allEvents.filter(e => e.executionId === executionId);
     snapshotStatus = "completed";
     service.sessionEvent(env.id, {
       executionId,
@@ -745,6 +759,7 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
       },
     };
     await page.reload();
+    await expect(attachedApproval).toHaveCount(1);
     await expect(page.locator(".messages .user-message")).toHaveCount(1);
     await expect(page.locator(".messages .user-message")).toContainText(
       "阶段指令",
@@ -793,6 +808,7 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
     await expect(page.locator(".messages .user-message")).toHaveCount(1);
     // Claude 的文本块和工具结果同样通过真实 SSE 通路展示。
     snapshotEvents = [];
+    autoApprovalEvents = [];
     nativeHistory = [];
     snapshotStatus = "idle";
     await page.goto(base + "/#chat/" + second.id);
@@ -832,6 +848,7 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
         ],
       },
     });
+    emit("relay/approval/auto", { interactionId: "permission-read", itemId: "read", source: "policy" });
     emit("user", {
       type: "user",
       uuid: "result",
@@ -889,10 +906,22 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
         .locator(".workbench-activity-detail")
         .filter({ hasText: "不可解析结构保留" }),
     ).toBeVisible();
-    snapshotEvents = [...allEvents];
+    snapshotEvents = allEvents.filter(e => e.executionId === executionId);
     service.sessionEvent(env.id, { executionId, status: "completed" });
     snapshotStatus = "completed";
     await page.setViewportSize({ width: 390, height: 844 });
+    // 两种语言与三主题均使用同一条卡片状态，窄屏时仍在可读区域内。
+    for (const locale of ["en", "zh-CN"] as const) {
+      await changeServerLanguage(page, locale);
+      for (const theme of ["light", "dark", "bug"]) {
+        await page.locator("html").evaluate((el, value) => el.setAttribute("data-theme", value), theme);
+        await expect(attachedApproval).toHaveText(locale === "en" ? "Auto-approved" : "已自动批准");
+        await expect(attachedApproval).toBeVisible();
+        const bounds = (await attachedApproval.boundingBox())!;
+        expect(bounds.x).toBeGreaterThanOrEqual(0);
+        expect(bounds.x + bounds.width).toBeLessThanOrEqual(390);
+      }
+    }
     // 竖屏恢复抽屉导航，正文不再为一级图标栏预留宽度。
     await expect(page.locator(".rail")).toBeHidden();
     await page.screenshot({ path: ".vibe/session-mobile.png", fullPage: true });

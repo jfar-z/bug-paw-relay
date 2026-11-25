@@ -1520,6 +1520,15 @@ dialog.closing::backdrop {
   background: var(--panel);
   margin: 8px 0;
 }
+.activity-auto-approval {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 10px 8px;
+  color: var(--secondary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
 .workbench-activity summary {
   display: flex;
   align-items: center;

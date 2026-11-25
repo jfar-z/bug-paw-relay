@@ -153,7 +153,10 @@ export function historyEvents(history: any, includeQuestions = false): any[] {
   if (!history) return [];
   const rows = new Map<string, any>();
   const nativeUsers = new Map<string, string[]>();
-  const live = history.events || [];
+  // 持久化审批可能已离开补传缓存，也可能与本次 SSE 快照重叠。
+  const live: any[] = history.autoApprovalEvents?.length
+    ? mergeSessionEvents(history.events, history.autoApprovalEvents)
+    : history.events || [];
   const records: QuestionRecord[] = history.questionRecords || [];
   const receiptIds = new Set<string>();
   const boardIds = new Map<string, string[]>((history.executionStarts || [])
@@ -175,6 +178,7 @@ export function historyEvents(history: any, includeQuestions = false): any[] {
   const sentUserRows = new Map<any, string>();
   type Origin = { turnId?: string; timestamp?: number; executionId?: string };
   const rowOrigins = new Map<string, Origin>();
+  const ambiguousRows = new Set<string>();
   const executionStarts = new Map<string, number>(
     (history.executionStarts || []).map((run: { id: string; createdAt: string }) =>
       [run.id, Date.parse(run.createdAt)],
@@ -182,6 +186,10 @@ export function historyEvents(history: any, includeQuestions = false): any[] {
   );
   let origin: Origin = {};
   const putRow = (id: string, row: any) => {
+    const previous = rowOrigins.get(id);
+    if ((previous?.turnId && origin.turnId && previous.turnId !== origin.turnId) ||
+        (previous?.executionId && origin.executionId && previous.executionId !== origin.executionId))
+      ambiguousRows.add(id);
     rows.set(id, row);
     if (Object.keys(origin).length)
       rowOrigins.set(id, { ...rowOrigins.get(id), ...origin });
@@ -514,8 +522,9 @@ export function historyEvents(history: any, includeQuestions = false): any[] {
         });
       }
     } else if (type === "relay/approval/auto") {
-      // 策略自动批准只留下一条来源明确的活动记录。
-      const id = `approval:${event.executionId}:${event.sequence}`;
+      // 同次交互的重复投递沿用首次位置，同一调用的多次审批各自保留。
+      const id = JSON.stringify(["approval", executionId, data.interactionId ?? event.sequence]);
+      if (rows.has(id)) continue;
       putRow(id, { id, type, data });
     } else if (type === "error" || (type === "result" && data.is_error)) {
       const id = `error:${event.executionId}:${event.sequence}`;
@@ -534,6 +543,35 @@ export function historyEvents(history: any, includeQuestions = false): any[] {
           : {}),
       });
     }
+  }
+  // 等历史与增量都投影完毕再关联，允许审批先于工具出现。
+  const approvals = [...rows.values()].filter(row => row.type === "relay/approval/auto");
+  const owners = new Map<string, Set<string>>();
+  for (const approval of approvals) {
+    const { itemId } = approval.data;
+    const owner = rowOrigins.get(approval.id)?.executionId;
+    if (!itemId || !owner) continue;
+    const executions = owners.get(itemId) ?? new Set<string>();
+    executions.add(owner);
+    owners.set(itemId, executions);
+  }
+  for (const approval of approvals) {
+    const { itemId, interactionId, turnId } = approval.data;
+    if (!itemId || !interactionId) continue;
+    const targets = [rows.get("item:" + itemId), rows.get("tool:" + itemId)]
+      .filter(row => row && sessionActivity(row));
+    if (targets.length !== 1) continue;
+    const target = targets[0];
+    if (ambiguousRows.has(target.id)) continue;
+    const source = rowOrigins.get(target.id);
+    const executionId = rowOrigins.get(approval.id)?.executionId;
+    if (!executionId || (source?.executionId && source.executionId !== executionId) ||
+        (source?.turnId && turnId && source.turnId !== turnId)) continue;
+    // 原生历史没有执行号；同一编号被多轮声明时只能靠明确的回合定位。
+    if (!source?.executionId && (!turnId || !source?.turnId) && owners.get(itemId)!.size > 1)
+      continue;
+    (target.autoApprovals ??= []).push(approval.id);
+    rows.delete(approval.id);
   }
   const result = [...rows.values()].map((row) => {
     const source = rowOrigins.get(row.id);
@@ -629,6 +667,7 @@ export function sessionActivity(event: any) {
         : undefined),
     output: item?.output ?? item?.aggregatedOutput ?? item?.result,
     raw: item ?? event.data,
+    ...(event.autoApprovals && { autoApprovals: event.autoApprovals }),
   };
 }
 
