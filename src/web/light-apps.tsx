@@ -723,6 +723,7 @@ type ViewerSession = {
   viewId: string;
   port?: MessagePort;
   ready: boolean;
+  hasBackend?: boolean;
   dispose: () => void;
   flushAndClose: (close: () => void) => void;
 };
@@ -882,7 +883,21 @@ function LightViewerContent({
 
     const receiveRuntime = (session: ViewerSession, { data }: MessageEvent) => {
       if (view.current !== session || !session.ready) return;
-      if (data?.type === "relay.light.storage") {
+      if (data?.type === "relay.light.backend" && session.hasBackend && !closing) {
+        // 路由和授权来自查看器，只从沙箱接收业务调用及响应关联标识。
+        const { id, call } = data;
+        if (typeof id !== "string" || id.length !== 36) return;
+        const reply = (payload: { result?: unknown; error?: string }) => {
+          if (view.current === session)
+            session.port?.postMessage({ type: "relay.light.backend.result", id, ...payload });
+        };
+        void api(path + "/backend", { viewId: session.viewId, call }, "POST", 15000)
+          .then(result => reply({ result }))
+          .catch(error => {
+            const details = caughtFeedback(error);
+            reply({ error: error?.code && typeof details !== "string" ? t(details.messageKey, details.messageParams) : t("light.backend.unknown") });
+          });
+      } else if (data?.type === "relay.light.storage") {
         const changes: StorageChange[] = data.changes;
         if (!Array.isArray(changes) || !changes.length || !changes.every(
           (entry) => Array.isArray(entry) && entry.length === 2 &&
@@ -945,7 +960,9 @@ function LightViewerContent({
             if (view.current !== session) return;
             if (!Array.isArray(snapshot?.entries) || !Number.isSafeInteger(snapshot.quota))
               return fail(feedback("light.storageLoadFailed"));
+            session.hasBackend = snapshot.hasBackend === true;
             session.port.postMessage({
+              ...(session.hasBackend && { hasBackend: true, unknownResult: t("light.backend.unknown"), invalidCall: t("light.backend.invalid") }),
               type: "relay.light.init", entries: snapshot.entries, quota: snapshot.quota,
             });
           }

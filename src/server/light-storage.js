@@ -1,5 +1,5 @@
 // 同一实现也由调试工具提供，调用方在运行应用前传入本版本的快照。
-export function installLightStorage({ entries, quota }, send, assetPrefix, entryFile = "") {
+export function installLightStorage({ entries, quota, hasBackend }, send, assetPrefix, entryFile = "") {
   const values = new Map(entries);
   let size = 0;
   for (const [key, value] of values) size += key.length + value.length;
@@ -20,6 +20,11 @@ export function installLightStorage({ entries, quota }, send, assetPrefix, entry
     source = typeof source === "string" ? source : "";
     let file = source === location.href ? entryFile : "";
     if (source.startsWith(assetPrefix)) file = source.slice(assetPrefix.length).split(/[?#]/)[0];
+    // 业务异常可能直接包含响应正文，带后端版本只上报类型及行列。
+    if (hasBackend && kind !== "storage") {
+      message = { script: "Script error", resource: "Resource load failed", promise: "Unhandled rejection" }[kind];
+      file = "";
+    }
     send({ type: "relay.light.diagnostic", error: {
       kind, message: String(message).replace(/https?:\/\/\S+/g, "[URL]").slice(0, 512),
       file: file.slice(0, 512), line, column,

@@ -1,8 +1,8 @@
-import { chromium, expect, test, type Page } from "@playwright/test";
+import { chromium, expect, test, type BrowserContext, type Page } from "@playwright/test";
 import { createHash, X509Certificate, randomUUID } from "node:crypto";
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
 import { createServer } from "node:https";
-import { request } from "node:http";
+import { createServer as createHttpServer, request } from "node:http";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -10,6 +10,10 @@ import { createApp } from "../src/server/app.js";
 import { createLightHost } from "../src/server/light-host.js";
 import { EnvironmentFiles } from "../src/connector/files.js";
 import { digest } from "../src/server/security.js";
+
+import { once } from "node:events";
+import { promisify } from "node:util";
+import { ConnectorConfig } from "../src/connector/config.js";
 
 const origin = "https://localhost";
 const domain = "apps.example.test";
@@ -26,10 +30,10 @@ test.use({
 });
 
 /** 在隔离回环 HTTPS 入口上验证两个真实服务及跨源分区 Cookie。 */
-test("会话与工作项发布、历史反馈、下架恢复及手机查看", async ({
-  page,
-  context,
-}, info) => {
+async function withHosting(page: Page, context: BrowserContext, run: (
+  setup: Awaited<ReturnType<typeof createApp>>, dir: string, cert: string,
+  controls: { hostingAvailable: boolean; dropSaveReceipt: boolean },
+) => Promise<void>) {
   const dir = await mkdtemp(join(tmpdir(), "relay-light-browser-"));
   const key = randomUUID();
   const setup = await createApp({
@@ -63,6 +67,8 @@ test("会话与工作项发布、历史反馈、下架恢复及手机查看", as
       "1",
       "-subj",
       "/CN=fixture.example.test",
+      "-addext",
+      "subjectAltName=DNS:localhost",
       "-keyout",
       privateKey,
       "-out",
@@ -70,14 +76,13 @@ test("会话与工作项发布、历史反馈、下架恢复及手机查看", as
     ],
     { stdio: "ignore" },
   );
-  let hostingAvailable = true;
-  let dropSaveReceipt = false;
+  const controls = { hostingAvailable: true, dropSaveReceipt: false };
   const proxy = createServer(
     { cert: await readFile(cert), key: await readFile(privateKey) },
     (req, reply) => {
       const target =
         req.headers.host === new URL(origin).hostname ? mainUrl : hostUrl;
-      if (target === hostUrl && !hostingAvailable) {
+      if (target === hostUrl && !controls.hostingAvailable) {
         reply.writeHead(502).end();
         return;
       }
@@ -89,8 +94,8 @@ test("会话与工作项发布、历史反馈、下架恢复及手机查看", as
           localAddress: req.headers["user-agent"]?.includes("InstalledFixture") ? "127.0.0.2" : "127.0.0.1",
         },
         (response) => {
-          if (dropSaveReceipt && req.method === "POST" && req.url?.endsWith("/feedback")) {
-            dropSaveReceipt = false;
+          if (controls.dropSaveReceipt && req.method === "POST" && req.url?.endsWith("/feedback")) {
+            controls.dropSaveReceipt = false;
             response.resume();
             reply.writeHead(502).end();
             return;
@@ -104,6 +109,8 @@ test("会话与工作项发布、历史反馈、下架恢复及手机查看", as
       req.pipe(incoming);
     },
   );
+  // 测试代理把连接器的 WSS 握手交给同一个真实主站。
+  proxy.on("upgrade", (req, socket, head) => app.server.emit("upgrade", req, socket, head));
   try {
     await new Promise<void>((done, fail) =>
       proxy.once("error", fail).listen(443, "127.0.0.1", done),
@@ -122,6 +129,23 @@ test("会话与工作项发布、历史反馈、下架恢复及手机查看", as
         httpOnly: true,
       },
     ]);
+    await run(setup, dir, cert, controls);
+  } finally {
+    await page.close({ reason: "fixture complete" });
+    proxy.closeAllConnections();
+    await new Promise<void>((done) => proxy.close(() => done()));
+    await host.close();
+    await internal.close();
+    await app.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+test("会话与工作项发布、历史反馈、下架恢复及手机查看", async ({
+  page,
+  context,
+}, info) => {
+  await withHosting(page, context, async ({ app, store, service, light }, dir, cert, controls) => {
     const env = store.put("environments", {
       name: "测试环境",
       approved: true,
@@ -459,7 +483,7 @@ test("会话与工作项发布、历史反馈、下架恢复及手机查看", as
     await viewer.getByRole("button", { name: "提出修改" }).click();
     const draft = viewer.getByRole("textbox", { name: "修改意见" });
     await draft.fill("请放大图例");
-    dropSaveReceipt = true;
+    controls.dropSaveReceipt = true;
     const notifyChanges = viewer.getByRole("button", { name: "提交并请 Agent 处理" });
     await notifyChanges.click();
     await expect(viewer.getByRole("alert")).toBeVisible();
@@ -584,7 +608,7 @@ test("会话与工作项发布、历史反馈、下架恢复及手机查看", as
     ).toBeVisible();
 
     // 专用托管监听不可用时，主站仍可查看原会话。
-    hostingAvailable = false;
+    controls.hostingAvailable = false;
     await expect(
       viewer.getByText("轻应用托管服务不可用，请检查托管连接与配置后重试。"),
     ).toBeVisible({ timeout: 10000 });
@@ -601,7 +625,7 @@ test("会话与工作项发布、历史反馈、下架恢复及手机查看", as
         "Light app hosting is unavailable. Check the hosting connection and configuration, then retry.",
       ),
     ).toBeVisible({ timeout: 20000 });
-    hostingAvailable = true;
+    controls.hostingAvailable = true;
     await page.getByRole("button", { name: "Retry", exact: true }).click();
     await expect(
       page.getByRole("button", { name: "Approve this version" }),
@@ -698,13 +722,180 @@ test("会话与工作项发布、历史反馈、下架恢复及手机查看", as
     await confirm.click();
     await expect(card("计算器")).toHaveCount(0);
     expect(store.get("lightApps", legacy.appId).deletion).toBe("deleted");
-  } finally {
-    await page.close({ reason: "fixture complete" });
-    proxy.closeAllConnections();
-    await new Promise<void>((done) => proxy.close(() => done()));
-    await host.close();
-    await internal.close();
-    await app.close();
-    await rm(dir, { recursive: true, force: true });
-  }
+  });
+});
+
+/** 两个回环业务服务各自持久化，读写走已发布页面和真实连接器。 */
+test("绑定版本通过真实连接器读写，重开及恢复后保留数据", async ({ page, context }) => {
+  await withHosting(page, context, async ({ store, service, light }, dir, cert) => {
+    const root = join(dir, "site");
+    await mkdir(root);
+    const config = new ConnectorConfig(join(dir, "connector"));
+    config.save({ ...config.read(), serverUrl: origin, roots: [{ id: "work", path: root }] });
+    const invite = randomUUID();
+    store.db.prepare("INSERT INTO invitations VALUES(?,?,0)").run(digest(invite), Date.now() + 60000);
+    const env = { ...process.env, BUGPAW_HOME: config.dir, NODE_EXTRA_CA_CERTS: cert };
+    await promisify(execFile)(process.execPath, ["--import", "tsx", "--input-type=module", "-e",
+      'import {ConnectorConfig} from "./src/connector/config.ts"; await new ConnectorConfig(process.env.BUGPAW_HOME).register(process.env.TEST_INVITE);'],
+      { env: { ...env, TEST_INVITE: invite } });
+    const environmentId = config.read().environmentId!;
+    store.put("environments", { approved: true }, environmentId);
+    const startWorker = () => spawn(process.execPath, ["--import", "tsx", "src/connector/main.ts", "run"], { env, stdio: "ignore" });
+    let worker = startWorker();
+    const connected = async () => expect.poll(() => service.peers.has(environmentId), { timeout: 15000 }).toBe(true);
+    const stopWorker = async () => {
+      if (worker.exitCode !== null || worker.signalCode !== null) return;
+      const ended = once(worker, "exit");
+      worker.kill();
+      await ended;
+    };
+    const session = store.put("sessions", { title: "记录会话", runtime: "codex", environmentId, rootId: "work", relativePath: "." });
+    const registration = join(config.dir, "light-services", session.id);
+    await mkdir(registration, { recursive: true });
+    const executionId = randomUUID();
+    const makeService = async () => {
+      const id = randomUUID();
+      const database = join(dir, id + ".json");
+      await writeFile(database, "[]");
+      const server = createHttpServer(async (req, res) => {
+        if (req.method === "HEAD" && req.url === "/.well-known/bugpaw-light-service")
+          return void res.writeHead(204, { "x-bugpaw-light-service": id }).end();
+        if (req.url !== "/records") return void res.writeHead(404).end("null");
+        const rows = JSON.parse(await readFile(database, "utf8"));
+        if (req.method === "POST") {
+          const chunks = [];
+          for await (const chunk of req) chunks.push(chunk);
+          rows.push(JSON.parse(Buffer.concat(chunks).toString()));
+          await writeFile(database, JSON.stringify(rows));
+          if (rows.at(-1) === "回执中断") return res.destroy();
+          res.statusCode = 201;
+        }
+        res.end(JSON.stringify(rows));
+      });
+      const start = async (port: number) => {
+        server.listen(port, "127.0.0.1");
+        await once(server, "listening");
+      };
+      await start(0);
+      const port = (server.address() as { port: number }).port;
+      await writeFile(join(registration, id + ".port"), String(port));
+      return { id, database, restart: () => start(port),
+        stop: () => new Promise<void>(done => server.close(() => done())) };
+    };
+    const one = await makeService();
+    const two = await makeService();
+    try {
+      await connected();
+      store.db.prepare("INSERT INTO executions VALUES(?,NULL,?,?,'running','{}',?)")
+        .run(executionId, session.id, environmentId, new Date().toISOString());
+      await writeFile(join(root, "index.html"), `<!doctype html><meta charset="utf-8"><input aria-label="记录"><button>保存</button><button>读取</button><output></output><script>
+        const output = document.querySelector('output');
+        async function records(method) {
+          try {
+            const call = { method, path: '/records' };
+            if (method === 'POST') call.body = JSON.stringify(document.querySelector('input').value);
+            const result = await window.relayBackend(call);
+            output.value = result.status + ' ' + result.body;
+          } catch (error) { output.value = error.message; }
+        }
+        const [save, read] = document.querySelectorAll('button');
+        save.onclick = () => records('POST');
+        read.onclick = () => records('GET');
+        if (window.relayBackend) records('GET'); else output.value = '静态版';
+      </script>`);
+      const publish = (backendServiceId?: string, appId?: string) => light.agent(
+        "light.publish", environmentId, service.peers.get(environmentId)!, {
+          executionId, args: { title: "记录簿", entry: "index.html", operationId: randomUUID(), appId, backendServiceId },
+        }) as Promise<{ appId: string; versionId: string }>;
+      const first = await publish(one.id);
+      await publish(two.id, first.appId);
+      await expect(publish(randomUUID(), first.appId)).rejects.toMatchObject({ code: "LIGHT_SERVICE" });
+      await publish(undefined, first.appId);
+      service.setState(executionId, "completed");
+      const frame = page.frameLocator("iframe");
+      const output = frame.locator("output");
+      const close = () => page.getByRole("dialog", { name: /^打开 记录簿/ }).getByRole("button", { name: "关闭", exact: true }).click();
+      await page.goto(origin + "/#chat/" + session.id);
+      const open = (n: number) => page.getByRole("button", { name: "打开 记录簿 · 版本 " + n, exact: true }).click();
+      await open(1);
+      await expect(output).toHaveText("200 []");
+      const save = async (value: string) => {
+        await frame.getByLabel("记录").fill(value);
+        await frame.getByText("保存").click();
+      };
+      await save("第一条");
+      await expect(output).toHaveText('201 ["第一条"]');
+      expect(await readFile(one.database, "utf8")).toBe('["第一条"]');
+      await frame.locator("output").evaluate(element => {
+        setTimeout(() => { throw new Error(element.textContent!); });
+      });
+      await expect.poll(() => store.findBy("lightDiagnostics", "versionId", first.versionId).map(row => row.message))
+        .toContain("Script error");
+      expect(JSON.stringify(store.findBy("lightDiagnostics", "versionId", first.versionId))).not.toContain("第一条");
+      await close();
+      await page.setViewportSize({ width: 390, height: 844 });
+      await open(2);
+      await expect(output).toHaveText("200 []");
+      await save("第二版");
+      await expect(output).toHaveText('201 ["第二版"]');
+      expect(await readFile(two.database, "utf8")).toBe('["第二版"]');
+      await close();
+      await open(1);
+      await expect(output).toHaveText('200 ["第一条"]');
+      await one.stop();
+      const read = () => frame.getByText("读取").click();
+      await read();
+      await expect(output).toContainText("指定服务不可用");
+      await one.restart();
+      await read();
+      await expect(output).toHaveText('200 ["第一条"]');
+      await stopWorker();
+      await expect.poll(() => service.peers.has(environmentId)).toBe(false);
+      await read();
+      await expect(output).toContainText("环境离线");
+      worker = startWorker();
+      await connected();
+      await save("回执中断");
+      await expect(output).toContainText("写入结果未确认");
+      await read();
+      await expect(output).toHaveText('200 ["第一条","回执中断"]');
+      await close();
+      await page.goto(origin + "/#light-apps");
+      await page.getByRole("button", { name: "打开", exact: true }).click();
+      await expect(output).toHaveText("静态版");
+      await close();
+      await page.getByRole("button", { name: "历史版本", exact: true }).click();
+      await open(1);
+      await expect(output).toHaveText('200 ["第一条","回执中断"]');
+      // 使用同账号的管理页撤销访问，验证旧视图失效及环境业务文件保留。
+      const admin = await context.newPage();
+      try {
+        await admin.goto(origin + "/#light-apps");
+        await admin.getByRole("button", { name: "下架", exact: true }).click();
+        await admin.getByRole("button", { name: "已下架", exact: true }).click();
+        await read();
+        await expect(output).toContainText("下架");
+        await admin.getByRole("button", { name: "恢复上架", exact: true }).click();
+        await close();
+        await page.goto(origin + "/#chat/" + session.id);
+        await open(1);
+        await expect(output).toHaveText('200 ["第一条","回执中断"]');
+        await admin.getByRole("button", { name: "已上架", exact: true }).click();
+        await admin.getByRole("button", { name: "永久删除", exact: true }).click();
+        const dialog = admin.getByRole("dialog", { name: "永久删除" });
+        await expect(dialog).toContainText("业务数据库和凭据将保留");
+        await dialog.getByRole("button", { name: "永久删除", exact: true }).click();
+        await expect(dialog).toHaveCount(0);
+        expect(store.get("lightApps", first.appId).deletion).toBe("deleted");
+        expect(await readFile(one.database, "utf8")).toBe('["第一条","回执中断"]');
+        expect(await readFile(two.database, "utf8")).toBe('["第二版"]');
+      } finally {
+        await admin.close();
+      }
+    } finally {
+      await stopWorker();
+      await one.stop();
+      await two.stop();
+    }
+  });
 });

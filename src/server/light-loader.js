@@ -70,6 +70,7 @@
   // 在发布脚本运行前绑定文档端口，导航时关闭旧文档的端口。
   const channel = new MessageChannel();
   const port = channel.port1;
+  const pending = new Map();
   let flush;
   const snapshot = await new Promise(resolve => {
     let initialized = false;
@@ -79,6 +80,10 @@
         flush();
         port.postMessage(data.challenge);
       }
+      else if (data?.type === "relay.light.backend.result") {
+        const receive = pending.get(data.id);
+        if (receive) receive(data);
+      }
       else if (!initialized && data?.type === "relay.light.init") {
         initialized = true;
         resolve(data);
@@ -87,7 +92,30 @@
     notify("relay.light.ready", [channel.port2]);
   });
   flush = installLightStorage(snapshot, message => port.postMessage(message), prefix, entry);
-  window.addEventListener("pagehide", () => port.close(), { once: true });
+  // 调用能力只属于当前文档；关页和超时均结束等待，写入由用户决定是否重试。
+  if (snapshot.hasBackend) {
+    const unknown = snapshot.unknownResult;
+    window.relayBackend = call => new Promise((resolve, reject) => {
+      const id = crypto.randomUUID();
+      const finish = ({ result, error }) => {
+        clearTimeout(timer);
+        pending.delete(id);
+        if (error) reject(new Error(error));
+        else resolve(result);
+      };
+      const timer = setTimeout(() => finish({ error: unknown }), 20000);
+      pending.set(id, finish);
+      try {
+        port.postMessage({ type: "relay.light.backend", id, call });
+      } catch {
+        finish({ error: snapshot.invalidCall });
+      }
+    });
+  }
+  window.addEventListener("pagehide", () => {
+    for (const receive of pending.values()) receive({ error: snapshot.unknownResult });
+    port.close();
+  }, { once: true });
   document.write("<!doctype html>" + parsed.documentElement.outerHTML);
   document.close();
 })();
