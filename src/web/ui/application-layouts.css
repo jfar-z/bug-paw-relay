@@ -2122,10 +2122,6 @@ dialog[data-layout="viewer"] :is(header button, .ui-embedded-view-controls butto
 
 /* 横屏入口与全屏还原共用标题栏位置，旋转到竖屏后仍可退出。 */
 .light-viewer-toolbar { display: none; }
-.light-viewer-toolbar .ui-icon-wrap::after {
-  inset: 50% calc(100% + 6px) auto auto;
-  transform: translateY(-50%);
-}
 .light-viewer-toolbar:has([data-expanded="true"]) { display: flex; }
 @media (orientation: landscape) {
   .light-viewer-toolbar:has(.light-fullscreen-entry:not([hidden])) { display: flex; }

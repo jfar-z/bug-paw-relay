@@ -25,7 +25,6 @@ import {
   EntityCard,
   ErrorBox,
   FormField,
-  IconButton,
   LinkButton,
   Metadata,
   Panel,
@@ -1218,22 +1217,27 @@ function LightViewerContent({
     return () => window.removeEventListener("message", receive);
   }, [submit]);
 
+  const fullscreenLabel = t(expanded ? "light.exitFullscreen" : "light.fullscreen");
   const feedbackText = kind === "change" ? text.trim() : "";
   const submitDisabled = sending || (kind === "change" && !feedbackText);
   return (
     <>
       {toolbar.current && createPortal(
         <span ref={toggle} className="light-fullscreen-entry" data-expanded={expanded} hidden={!ready && !expanded}>
-          <IconButton
-            label={t(expanded ? "light.exitFullscreen" : "light.fullscreen")}
-            icon={expanded ? <Minimize2 /> : <Maximize2 />}
+          <Button
+            variant="ghost"
+            shape="icon"
+            aria-label={fullscreenLabel}
+            title={fullscreenLabel}
             onClick={() => {
               if (expanded) return leaveFullscreen();
               setExpanded(true);
               // 模态 dialog 自身无法请求系统全屏，使用文档根保留顶层弹窗。
               void document.documentElement.requestFullscreen?.().catch(() => {});
             }}
-          />
+          >
+            {expanded ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}
+          </Button>
         </span>, toolbar.current)}
       <div ref={surface} className="ui-embedded-view" data-expanded={expanded}>
         <iframe

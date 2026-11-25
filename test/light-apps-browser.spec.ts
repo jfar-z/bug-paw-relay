@@ -529,6 +529,19 @@ test("会话与工作项发布、历史反馈、下架恢复及手机查看", as
       const enter = header.getByRole("button", { name: "全屏", exact: true });
       const leave = header.getByRole("button", { name: "退出全屏" });
       const close = header.getByRole("button", { name: "关闭" });
+      // 检查实际绘制的提示，避免图标保留焦点时旁边出现第二个文字控件。
+      async function expectIconOnly() {
+        const toolbar = header.locator(".light-viewer-toolbar");
+        await expect(toolbar).toHaveText("");
+        const tips = await toolbar.locator("*").evaluateAll(elements =>
+          elements.flatMap(element => ["::before", "::after"].map(pseudo =>
+            getComputedStyle(element, pseudo)
+          )).filter(style => !["none", "normal", '""'].includes(style.content) &&
+            style.display !== "none" && style.visibility === "visible" && Number(style.opacity) > 0)
+            .map(style => style.content)
+        );
+        expect(tips).toEqual([]);
+      }
       const draft = dialog.getByRole("textbox", { name: "修改意见" });
       const output = active.frameLocator("iframe").locator("output");
       const change = dialog.getByRole("button", { name: "提出修改" });
@@ -558,6 +571,8 @@ test("会话与工作项发布、历史反馈、下架恢复及手机查看", as
           }, mode);
           await enter.click();
           await expect(leave.locator("svg")).toBeVisible();
+          await expect(leave).toBeFocused();
+          await expectIconOnly();
           await expect(header.getByRole("heading")).toContainText("交互报告");
           await expect(close).toBeVisible();
           expect((await leave.boundingBox())!.height).toBeGreaterThanOrEqual(44);
@@ -577,7 +592,10 @@ test("会话与工作项发布、历史反馈、下架恢复及手机查看", as
             await expect(close).toBeFocused();
             await expect(enter).toBeHidden();
           }
-          if (mode !== "denied") await expect(enter).toBeFocused();
+          if (mode !== "denied") {
+            await expect(enter).toBeFocused();
+            await expectIconOnly();
+          }
           await expect(draft).toHaveValue("未提交意见");
           await expect(output).toHaveText("游戏进行中");
         }
