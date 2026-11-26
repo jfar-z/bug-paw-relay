@@ -1,3 +1,4 @@
+import { translate } from "../src/shared/i18n.js";
 import { changeServerLanguage } from "./browser-language.js";
 import { workflowPrompt } from "../src/shared/stage-handoff.js";
 import { createServer } from "node:net";
@@ -1954,3 +1955,121 @@ test("终态晚落盘、同流环境恢复和浏览器重连只在必要时对�
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+/** 每个场景独占临时数据库，核对真实请求与事务提交后的索引。 */
+for (const [total, outcome] of [
+  [1, "success"], [200, "success"], [201, "success"], [401, "success"],
+  [401, "busy"], [201, "firstBusy"], [401, "lost"],
+] as const) {
+  test(`环境会话范围与分批删除 ${total} ${outcome}`, async ({ page, context }) => {
+    const dir = mkdtempSync(join(tmpdir(), "relay-range-delete-"));
+    const config = { dataDir: dir, publicUrl: "http://127.0.0.1", secureCookie: false, webDir: resolve("dist/web") };
+    const { app, store, service } = await createApp(config);
+    const mobileArchive = total === 201 && outcome === "success";
+    const locale = mobileArchive ? "en" : "zh-CN";
+    const label = (key: string) => translate(locale, "web." + key);
+    try {
+      service.saveLanguage({ preference: locale });
+      if (mobileArchive) await page.setViewportSize({ width: 390, height: 844 });
+      const projectId = store.put("projects", { name: "P", directories: [] }).id;
+      const environmentId = store.put("environments", { name: "E", roots: [], approved: true }).id;
+      const create = (title: string, pinOrder?: number) => store.put("sessions", {
+        title, projectId, environmentId, runtime: "codex", status: "completed", pinOrder, archived: mobileArchive,
+      }).id;
+      const untouched = create("Other");
+      const ids = Array.from({ length: total }, (_, i) => create("Test " + i, i === 0 ? 1 : undefined));
+      const token = randomUUID();
+      store.put("users", { username: "fixture" }, "owner");
+      store.db.prepare("INSERT INTO auth_sessions VALUES(?,?,?)").run(digest(token), "owner", Date.now() + 600000);
+      await app.listen({ host: "127.0.0.1", port: 0 });
+      config.publicUrl += ":" + (app.server.address() as { port: number }).port;
+      await context.addCookies([{ name: "relay_session", value: token, url: config.publicUrl }]);
+      await page.goto(config.publicUrl + "/#chat/" + ids[0]);
+      const button = (name: string) => page.getByRole("button", { name, exact: true });
+      const batches: string[][] = [];
+      let releaseFirst = () => {};
+      const firstGate = new Promise<void>(resolve => { releaseFirst = resolve; });
+      await page.route("**/api/sessions/manage", async route => {
+        const batch = route.request().postDataJSON().ids as string[];
+        batches.push(batch);
+        if (total === 1) await firstGate;
+        if ((outcome === "busy" && batches.length === 2) || outcome === "firstBusy") {
+          store.put("sessions", { status: "running" }, batch[0]);
+        }
+        if (outcome === "lost" && batches.length === 2) {
+          // 服务端已提交，模拟应答丢失，同时让后续索引对账失败。
+          await route.fetch();
+          await page.route("**/api/state/query", r => r.abort());
+          await route.abort();
+          return;
+        }
+        await route.continue();
+      });
+      if (mobileArchive) {
+        await button(label("sessionList")).click();
+        await button(label("viewArchive")).click();
+        await page.locator(".project-group summary").click();
+      }
+      await page.getByPlaceholder(label("searchSessions")).fill("Test ");
+      await button(label("sessionActionsAlternative556") + "Test 0").click();
+      await page.getByRole("menuitem", { name: label("selectMultiple") }).click();
+      if (total === 200) {
+        await page.locator(".project-group summary").click();
+        const rows = page.locator(".session-entry:visible");
+        const pick = (index: number) => rows.nth(index).locator("button[title]").first();
+        await pick(5).click();
+        await pick(1).click();
+        await rows.nth(3).locator("label.check").click({ modifiers: ["Shift"] });
+        await expect(page.locator(".session-entry input:checked")).toHaveCount(5);
+        await pick(3).click();
+        await pick(1).click({ modifiers: ["Shift"] });
+        await expect(page.locator(".session-entry input:checked")).toHaveCount(5);
+        await pick(0).click({ modifiers: ["Shift"] });
+        await expect(rows.nth(0).locator("input")).toBeChecked();
+        await page.locator(".project-group summary").click();
+      }
+      await page.getByRole("checkbox", { name: label("selectAllInCurrentList") }).check();
+      await button(label("deleteAll")).click();
+      const dialog = page.locator("dialog[open]");
+      await expect(dialog).toContainText(String(total));
+      await button(label("cancel")).click();
+      expect(batches).toEqual([]);
+      await button(label("deleteAll")).click();
+      await button(label("confirmOperation")).click();
+      if (total === 1) {
+        try {
+          await expect(button(label("sessionManagementPending"))).toBeDisabled();
+          await page.keyboard.press("Escape");
+          await expect(dialog).toBeVisible();
+          expect(batches).toHaveLength(1);
+        } finally {
+          releaseFirst();
+        }
+      }
+      if (outcome === "success") {
+        await expect(dialog).toHaveCount(0);
+        await expect(page.locator(".session-entry")).toHaveCount(0);
+        await expect(page).toHaveURL(config.publicUrl + "/#chat");
+        expect(batches.map(batch => batch.length)).toEqual(
+          Array.from({ length: Math.ceil(total / 200) }, (_, i) => Math.min(total - 200 * i, 200)));
+        expect(batches.flat().sort()).toEqual([...ids].sort());
+      } else {
+        const confirmed = outcome === "firstBusy" ? 0 : 200;
+        await expect(dialog).toContainText(`已确认删除 ${confirmed}/${total} 条，另有 1 条尚未提交`);
+        await expect(dialog).toContainText(outcome === "lost" ? "结果未确认" : "批删除失败");
+        if (outcome === "lost") await expect(dialog).toContainText("列表尚未同步");
+        else await expect(page.locator(".session-entry")).toHaveCount(total - confirmed);
+        expect(batches.length).toBe(outcome === "firstBusy" ? 1 : 2);
+        const deleted = outcome === "lost" ? 400 : confirmed;
+        expect(store.list("sessions")).toHaveLength(total - deleted + 1);
+      }
+      expect(store.get("sessions", untouched).title).toBe("Other");
+    } finally {
+      await context.close();
+      // 关闭夹具自己的长连接，避免 SSE 或代理请求让临时服务器一直等待。
+      app.server.closeAllConnections();
+      await app.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+}
