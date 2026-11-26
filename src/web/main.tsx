@@ -742,7 +742,12 @@ function App() {
             )}
           </div>
           <div className="content" data-page={page} key={page}>
-            {readyPage !== pageKey ? <p role="status">{tr("web.loading")}</p> : <>
+            {readyPage !== pageKey ? (
+              <div className="menu-loading" role="status">
+                <img src="/assets/bugpaw-sleeping.webp" alt="" width={320} height={235} />
+                <span>{tr("web.loading")}</span>
+              </div>
+            ) : <>
             {page === "ui" && <UiShowcase />}
             {page === "workbench" && (
               <WorkbenchPage

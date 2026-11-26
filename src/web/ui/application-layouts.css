@@ -83,6 +83,25 @@ dialog > header > button {
   border-radius: var(--radius);
   overflow-wrap: anywhere;
 }
+/* 正文容器已扣除导航、标题和错误提示，等待图文随剩余空间居中。 */
+.content > .menu-loading {
+  height: 100%;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  color: var(--secondary);
+  animation: none;
+}
+.menu-loading img {
+  width: 144px;
+  height: auto;
+}
+@media (max-width: 759px) {
+  .menu-loading img {
+    width: 112px;
+  }
+}
 .loading {
   height: 100dvh;
   display: grid;

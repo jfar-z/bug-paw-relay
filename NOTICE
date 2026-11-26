@@ -1,6 +1,7 @@
 BugPaw Relay
 Copyright 2026 BugPaw Relay contributors.
 Brand artwork derived from BugPaw, licensed under Apache-2.0.
+The sleeping illustration is cropped and resized from BugPaw’s bugpaw-sleeping.png.
 Original license retained in public/assets/LICENSE-BugPaw.txt.
 Third-party packages retain their respective licenses in distributed node_modules.
 Claude and Codex icons adapted from LobeHub Icons, licensed under MIT.
