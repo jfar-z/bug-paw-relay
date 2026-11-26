@@ -100,7 +100,8 @@ test("管理命令、手机补全及四种接管操作", async ({ page, context 
       .click();
     const dialog = page.getByRole("dialog");
     const allow = dialog.getByRole("checkbox", { name: "放行 /demo" });
-    await allow.check();
+    // 勾选值以环境异步保存回执为准。
+    await allow.click();
     await expect(allow).toBeChecked();
     unavailable = true;
     await dialog.getByRole("button", { name: "刷新命令清单" }).click();
@@ -166,7 +167,10 @@ test("管理命令、手机补全及四种接管操作", async ({ page, context 
     await expect(input).toHaveValue("new draft");
     await input.fill("");
     await expect(input).toHaveValue("/demo keep arguments");
-    await send("/demo running");
+    // 草稿恢复和终态历史对账分别到达，等发送入口重新可用才开始下一轮。
+    await input.fill("/demo running");
+    await expect(page.getByRole("button",{name:"发送",exact:true})).toBeEnabled();
+    await input.press("Enter");
     await expect(input).toHaveValue("");
     await send("/resume " + original.id);
     await expect(page).toHaveURL(base + "/#chat/" + original.id);
