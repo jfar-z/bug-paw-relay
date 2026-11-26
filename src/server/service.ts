@@ -1,3 +1,5 @@
+import { EnvironmentMetrics } from "./environment-metrics.js";
+import { metricsCapability } from "../shared/environment-metrics.js";
 import { boardCapability } from "../shared/session-boards.js";
 import { systemLocale } from "../shared/system-locale.js";
 import { preference, translate, type Locale } from "../shared/i18n.js";
@@ -104,6 +106,7 @@ function stagesReachingDone(stages: Stage[]) {
 
 /** 所有用户界面与平台工具复用的业务入口。环境正文只经 RPC 临时返回。 */
 export class Service {
+  readonly metrics: EnvironmentMetrics;
   peers = new Map<string, RpcPeer>();
   updateView?: (id: string) => any;
   /** 所有执行入口共用持久化维护锁，看板等待不占并发名额。 */
@@ -312,7 +315,9 @@ export class Service {
     public store: Store,
     public vault: Vault,
     private connectorRelease: ConnectorRelease | null = null,
-  ) {}
+  ) {
+    this.metrics = new EnvironmentMetrics(store.db);
+  }
   /** 已保存的项按配置排列，新项按原创建顺序追加，删除项自然跳过。 */
   private orderedEntities(entities: Entity[], savedIds: string[]): Entity[] {
     const remaining = new Map(entities.map((entity) => [entity.id, entity]));
@@ -460,6 +465,7 @@ export class Service {
         }))
         .sort(compareSessionActivity);
     }
+    const resources = kind === "environments" ? this.metrics.summaries() : null;
     return this.store.list(kind).map((v) =>
       kind === "models"
         ? this.publicModel(v)
@@ -471,6 +477,8 @@ export class Service {
                 .filter((runtime) => Object.hasOwn(v.tools ?? {}, runtime))
                 .map((runtime) => [runtime, v.tools[runtime]])),
               online: this.peers.has(v.id),
+              resources: v.approved && !v.revoked && v.capabilities?.includes(metricsCapability)
+                ? resources?.get(v.id) ?? null : null,
               connectorUpdate: {
                 ...connectorUpdate(
                   v.connectorVersion,

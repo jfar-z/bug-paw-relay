@@ -1,3 +1,4 @@
+import { metricsCapability, trafficWindow } from "../shared/environment-metrics.js";
 import { boardCapability } from "../shared/session-boards.js";
 import { SessionBoards } from "./session-boards.js";
 import { commandPeer, manualSend, manualSendSchema } from "./slash-commands.js";
@@ -120,7 +121,14 @@ export async function createApp(options: AppOptions) {
   const artifacts = new Artifacts(service, files, options.dataDir);
   await artifacts.prune();
   const artifactCleanup = setInterval(
-    () => void artifacts.prune().catch(() => {}),
+    () => {
+      try {
+        service.metrics.prune();
+      } catch {
+        console.warn(JSON.stringify({ event: "environment.metrics_cleanup_failed" }));
+      }
+      void artifacts.prune().catch(() => {});
+    },
     3600000,
   );
   artifactCleanup.unref();
@@ -548,6 +556,14 @@ export async function createApp(options: AppOptions) {
     store.put("users", { totp: null }, user.id);
     return { ok: true };
   });
+  app.get<{ Params: { id: string }; Querystring: { window?: string } }>(
+    "/api/environments/:id/traffic", async (req) => {
+      const env = store.get("environments", req.params.id);
+      ensure(!env.revoked, "REVOKED", i18nMessage("errors.REVOKED.the.environment.identity.has.been.revoked"), 403);
+      ensure(env.approved, "FORBIDDEN", i18nMessage("errors.FORBIDDEN.the.environment.is.not.accessible"), 403);
+      return service.metrics.history(env.id, trafficWindow.default("24h").parse(req.query.window));
+    },
+  );
   app.get("/api/state", async () => service.stateSnapshot());
   app.put("/api/projects/order", async (req) => {
     const { projectIds } = z.object({ projectIds: z.array(idSchema) }).strict().parse(req.body);
@@ -1718,6 +1734,7 @@ export async function createApp(options: AppOptions) {
       const connectionId = randomUUID();
       let closeReason = "";
       let authenticationFailures = 0;
+      let metricsTimer: NodeJS.Timeout | undefined;
       const log = (event: string, fields: any = {}) => {
         process.stdout.write(
           JSON.stringify({
@@ -1905,6 +1922,13 @@ export async function createApp(options: AppOptions) {
                       !store.get("environments", e.id).revoked
                     ) {
                       service.peers.set(e.id, peer);
+                      if (d.capabilities?.includes(metricsCapability)) {
+                        metricsTimer = service.metrics.monitor(
+                          e.id, peer,
+                          () => service.peers.get(e.id) === peer && socket.readyState === 1 && !store.get("environments", e.id).revoked,
+                          reason => log("environment.metrics_failed", { reason }),
+                        );
+                      }
                       void service.syncSessionTitles(e.id, peer);
                     }
                   })
@@ -1997,6 +2021,7 @@ export async function createApp(options: AppOptions) {
           authenticationFailures,
           initiator: closeReason || code === 4003 ? "server" : "unknown",
         });
+        clearInterval(metricsTimer);
         monitor.close();
         clearTimeout(deadline);
         clearInterval(heartbeat);

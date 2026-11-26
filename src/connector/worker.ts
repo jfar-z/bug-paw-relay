@@ -1,3 +1,5 @@
+import { hostSampler } from "./host-metrics.js";
+import { metricsCapability } from "../shared/environment-metrics.js";
 import { LightBackend } from "./light-backend.js";
 import { backendCapability } from "../shared/light-apps.js";
 import { boardSessionTitleCapability } from "../shared/stage-handoff.js";
@@ -302,6 +304,7 @@ export async function runWorker(settings: ConnectorConfig) {
     status = "connecting";
     socket = new WebSocket(url, { maxPayload: 10 * 1024 * 1024 });
     const ws = socket;
+    const sampleHost = hostSampler(settings.dir);
     const connectionId = randomUUID();
     const connectedAt = performance.now();
     const log = (event: string, fields: any = {}) =>
@@ -382,6 +385,7 @@ export async function runWorker(settings: ConnectorConfig) {
                 boardSessionTitleCapability,
                 "user-questions-v1",
                 autoApprovalCapability,
+                metricsCapability,
               ],
               connectorVersion: readConnectorVersion(),
               connectorBuildId,
@@ -457,6 +461,7 @@ export async function runWorker(settings: ConnectorConfig) {
           ),
           401,
         );
+        if (method === "environment.metrics") return sampleHost();
         if (method === "identity.revoked") {
           await revoke(ws);
           return;
