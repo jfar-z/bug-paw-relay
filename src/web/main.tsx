@@ -343,7 +343,20 @@ function App() {
   const scope = JSON.stringify([auth?.authenticated, pageKey, groups, includeArchived]);
   const activeScope = useRef(scope);
   activeScope.current = scope;
+  const deletionRefreshScope = useRef("");
+  async function refreshAfterDelete() {
+    deletionRefreshScope.current = scope;
+    try {
+      return await refreshIndex();
+    } finally {
+      deletionRefreshScope.current = "";
+    }
+  }
   async function refresh() {
+    // 删除后的对账覆盖当前页面的轮询，避免并发读取让本次成功响应被当作过期。
+    if (deletionRefreshScope.current !== scope) await refreshIndex();
+  }
+  async function refreshIndex() {
     if (!auth?.authenticated || activeScope.current !== scope) return;
     const epoch = ++queryEpoch.current;
     const key = (group: string) => group === "boardPage" ? JSON.stringify([group, boardId, includeArchived]) : group;
@@ -365,6 +378,7 @@ function App() {
       });
       setReadyPage(pageKey);
       setRefreshError("");
+      return true;
     } catch (error: any) {
       if (epoch !== queryEpoch.current || activeScope.current !== scope) return;
       setRefreshError(caughtFeedback(error));
@@ -743,8 +757,15 @@ function App() {
                 projects={sessionProjects}
                 onCreateAgent={() => edit("agents")}
                 onRefresh={refresh}
+                onRefreshAfterDelete={refreshAfterDelete}
                 state={state}
                 selected={selected}
+                onDeleted={(ids: Set<string>) => {
+                  setState((current: any) => ({
+                    ...current,
+                    sessions: current.sessions.filter((row: any) => !ids.has(row.id)),
+                  }));
+                }}
                 onPinSaved={(id: string, pinOrder: number | null) => {
                   setState((current: any) => ({
                     ...current,

@@ -274,12 +274,12 @@ export function SessionCard({
           held.current = true;
           setSignal((v) => v + 1);
         }}
-        onClick={() => {
+        onClick={(event) => {
           if (held.current) {
             held.current = false;
             return;
           }
-          selecting ? onCheck(!checked) : onOpen();
+          selecting ? onCheck(!checked, event.shiftKey) : onOpen();
         }}
       >
         <SessionStatus value={status} />

@@ -477,7 +477,7 @@ export function Check({
 }: {
   checked: boolean;
   disabled?: boolean;
-  onChange: (v: boolean) => void;
+  onChange: (v: boolean, shiftKey: boolean) => void;
   children: ReactNode;
 }) {
   useLocale();
@@ -487,7 +487,7 @@ export function Check({
         type="checkbox"
         checked={checked}
         disabled={disabled}
-        onChange={(e) => onChange(e.target.checked)}
+        onChange={(e) => onChange(e.target.checked, (e.nativeEvent as MouseEvent).shiftKey === true)}
       />
       <span className="check-mark" aria-hidden="true">
         <CheckIcon size={14} strokeWidth={3} />

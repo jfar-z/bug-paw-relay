@@ -3213,6 +3213,26 @@ export const webMessages = {
     "zh-CN": "将{action} {count} 个会话。",
     en: "{action} sessions: {count}.",
   },
+  "web.sessionDeleteRejected": {
+    "zh-CN": "第 {batch} 批删除失败。已确认删除 {done}/{total} 条，另有 {remaining} 条尚未提交。",
+    en: "Batch {batch} failed. Confirmed deletions: {done}/{total}. Still unsubmitted: {remaining}.",
+  },
+  "web.sessionDeleteUnknown": {
+    "zh-CN": "第 {batch} 批删除结果未确认。已确认删除 {done}/{total} 条，另有 {remaining} 条尚未提交。",
+    en: "The outcome of batch {batch} is unknown. Confirmed deletions: {done}/{total}. Still unsubmitted: {remaining}.",
+  },
+  "web.sessionDeleteConnectionLost": {
+    "zh-CN": "连接中断或请求超时，未收到服务端确认。",
+    en: "The connection failed or timed out before the server confirmed the request.",
+  },
+  "web.sessionDeleteUnsynced": {
+    "zh-CN": "会话列表尚未同步。请刷新列表后再选择会话。",
+    en: "The session list has not synced. Refresh before selecting sessions again.",
+  },
+  "web.sessionManagementPending": {
+    "zh-CN": "正在处理会话…",
+    en: "Processing sessions…",
+  },
   "web.selectionCount": {
     "zh-CN": "已选 {count} 项，以下操作仅作用于所选会话",
     en: "Selected sessions: {count}. The actions below apply only to these sessions.",

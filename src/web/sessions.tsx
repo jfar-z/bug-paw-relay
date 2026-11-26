@@ -209,6 +209,8 @@ export function Sessions({
   projects,
   onProjects,
   onPinSaved,
+  onDeleted,
+  onRefreshAfterDelete,
   onCreateAgent,
   action,
   onRefresh,
@@ -247,6 +249,21 @@ export function Sessions({
   const [archiveFilter, setArchiveFilter] = useState("active");
   const [selection, setSelection] = useState<string[]>([]);
   const [selecting, setSelecting] = useState(false);
+  const rangeAnchor = useRef("");
+  const managementLock = useRef(false);
+  const [managing, setManaging] = useState(false);
+  const [deleteResult, setDeleteResult] = useState<{
+    failure?: UiFeedback;
+    reason?: UiFeedback;
+    unsynced: boolean;
+  } | null>(null);
+  const removedCandidate = useRef("");
+  useEffect(() => {
+    if (removedCandidate.current && removedCandidate.current === selected && !session) {
+      removedCandidate.current = "";
+      location.hash = "chat";
+    }
+  }, [state.sessions, selected, session, managing]);
   const [confirm, setConfirm] = useState<any>(null);
   const [pending, setPending] = useState<any>(null);
   const [streaming, setStreaming] = useState(false);
@@ -502,21 +519,66 @@ export function Sessions({
       setFilter("");
   }, [filter, projects]);
   useEffect(() => {
+    rangeAnchor.current = "";
     setSelection([]);
   }, [filter, search, archiveFilter]);
+  const exitSelection = () => {
+    rangeAnchor.current = "";
+    setSelection([]);
+    setSelecting(false);
+  };
   const manage = async () => {
+    if (managementLock.current || !confirm) return;
+    managementLock.current = true;
+    setManaging(true);
+    setError("");
     try {
-      setError("");
-      await api("/sessions/manage", confirm);
-      const { ids, action: operation } = confirm;
+      if (confirm.action !== "delete") {
+        await api("/sessions/manage", confirm);
+        setConfirm(null);
+        exitSelection();
+        await action(async () => {});
+        return;
+      }
+      const ids: string[] = confirm.ids;
+      const confirmed = new Set<string>();
+      let failure: UiFeedback | undefined;
+      let reason: UiFeedback | undefined;
+      // 确认框持有独立快照，每批收到成功响应之后才提交下一批。
+      for (let offset = 0; offset < ids.length; offset += 200) {
+        const batch = ids.slice(offset, offset + 200);
+        try {
+          const response = await api("/sessions/manage", { action: "delete", ids: batch }, "POST", 30000);
+          if (!response?.ok || !Array.isArray(response.ids) || response.ids.length !== batch.length
+            || !batch.every(id => response.ids.includes(id))) {
+            throw feedback("web.theServiceReturnedUnexpectedDataPleaseTryAgainLater");
+          }
+          for (const id of batch) confirmed.add(id);
+        } catch (error) {
+          const { status, code } = error as { status?: number; code?: string };
+          const rejected = status && status >= 400 && status < 500 && code;
+          failure = feedback(rejected ? "web.sessionDeleteRejected" : "web.sessionDeleteUnknown", {
+            done: offset, total: ids.length, batch: offset / 200 + 1,
+            remaining: ids.length - offset - batch.length,
+          });
+          reason = error instanceof TypeError || (error instanceof DOMException && error.name === "TimeoutError")
+            ? feedback("web.sessionDeleteConnectionLost")
+            : caughtFeedback(error);
+          break;
+        }
+      }
+      removedCandidate.current = ids.includes(current.current) ? current.current : "";
+      // 即使对账暂时失败，已收到删除回执的会话也不能再次成为删除目标。
+      if (confirmed.size) onDeleted(confirmed);
+      const synced = await onRefreshAfterDelete();
       setConfirm(null);
-      setSelection([]);
-      setSelecting(false);
-      if (operation === "delete" && ids.includes(selected))
-        location.hash = "chat";
-      await action(async () => {});
-    } catch (e) {
-      setError(caughtFeedback(e as Error));
+      exitSelection();
+      if (failure || !synced) setDeleteResult({ failure, reason, unsynced: !synced });
+    } catch (error) {
+      setError(caughtFeedback(error));
+    } finally {
+      managementLock.current = false;
+      setManaging(false);
     }
   };
   const creating = useRef(false);
@@ -940,18 +1002,30 @@ export function Sessions({
       rowId={"session-row-" + s.id}
       pinBusy={!!pinning}
       onPin={() => void savePin(s)}
-      onCheck={(checked: boolean) =>
-        setSelection((ids) =>
-          checked
-            ? [...new Set([...ids, s.id])]
-            : ids.filter((id) => id !== s.id),
-        )
-      }
+      onCheck={(checked: boolean, shift: boolean) => {
+        if (shift && rangeAnchor.current) {
+          // details 的展开状态由浏览器管理，直接依据本列表实际渲染顺序取区间。
+          const sidebar = document.getElementById("session-row-" + s.id)?.closest(".session-list");
+          const order = Array.from(sidebar?.querySelectorAll<HTMLElement>(".session-entry") ?? [])
+            .filter(row => !row.closest("details:not([open])"))
+            .map(row => row.id.slice("session-row-".length));
+          const start = order.indexOf(rangeAnchor.current);
+          const end = order.indexOf(s.id);
+          if (start >= 0 && end >= 0) {
+            const range = order.slice(Math.min(start, end), Math.max(start, end) + 1);
+            setSelection(ids => [...new Set([...ids, ...range])]);
+            return;
+          }
+        }
+        rangeAnchor.current = s.id;
+        setSelection(ids => checked ? [...new Set([...ids, s.id])] : ids.filter(id => id !== s.id));
+      }}
       onOpen={() => {
         location.hash = "chat/" + s.id;
         setList(false);
       }}
       onSelect={() => {
+        rangeAnchor.current = s.id;
         setSelecting(true);
         setSelection([s.id]);
       }}
@@ -1151,12 +1225,9 @@ export function Sessions({
             selection={selection}
             setSelection={setSelection}
             archived={archiveFilter === "archived"}
-            onExit={() => {
-              setSelecting(false);
-              setSelection([]);
-            }}
+            onExit={exitSelection}
             onManage={(operation: string) =>
-              setConfirm({ ids: selection, action: operation })
+              setConfirm({ ids: [...new Set(selection)], action: operation })
             }
           />
         )}
@@ -1705,7 +1776,17 @@ export function Sessions({
             <ErrorBox error={commandError} />
           </Modal>
         )}
-        {confirm && (
+        {/* 移动端抽屉会停用对话区，管理弹窗需挂在可操作的顶层。 */}
+        {deleteResult && createPortal(
+          <Modal title={tr("web.deleteSessions")} onClose={() => setDeleteResult(null)}>
+            <ErrorBox error={deleteResult.failure} />
+            <ErrorBox error={deleteResult.reason} />
+            {deleteResult.unsynced && <ErrorBox error={feedback("web.sessionDeleteUnsynced")} />}
+            <footer><Button onClick={() => setDeleteResult(null)}>{tr("web.close")}</Button></footer>
+          </Modal>,
+          document.body,
+        )}
+        {confirm && createPortal(
           <Modal
             title={
               confirm.action === "delete"
@@ -1714,6 +1795,7 @@ export function Sessions({
                   ? tr("web.archiveSessions")
                   : tr("web.unarchive")
             }
+            busy={managing}
             onClose={() => setConfirm(null)}
           >
             <p>
@@ -1736,14 +1818,15 @@ export function Sessions({
             )}
             <ErrorBox error={error} />
             <Row>
-              <Button onClick={() => setConfirm(null)}>
+              <Button disabled={managing} onClick={() => setConfirm(null)}>
                 {tr("web.cancel")}
               </Button>
-              <Button variant="primary" onClick={manage}>
-                {tr("web.confirmOperation")}
+              <Button variant="primary" disabled={managing} onClick={manage}>
+                {tr(managing ? "web.sessionManagementPending" : "web.confirmOperation")}
               </Button>
             </Row>
-          </Modal>
+          </Modal>,
+          document.body,
         )}
         {fileHref && session && fileSession.current === session.id && (
           <EnvironmentFile
