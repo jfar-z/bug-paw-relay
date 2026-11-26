@@ -251,11 +251,9 @@ export function NewItem({
     setLoading(true);
     setError("");
     try {
-      const state = await api("/state", undefined, undefined, 15000);
+      const { changes } = await api("/state/query", { groups: ["board"], boardId: boardId }, "POST", 15000);
       if (!mounted.current) return;
-      const latest: Board | undefined = state.boards.find(
-        (b: Board) => b.id === boardId,
-      );
+      const latest: Board | undefined = changes.board.value;
       if (!latest) {
         setBlocked(true);
         setError(creationFeedback("missing"));

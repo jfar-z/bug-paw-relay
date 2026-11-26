@@ -59,10 +59,8 @@ export function BoardTitleEditor({
     lock.current = true;
     setBusy(true);
     try {
-      const state = await api("/state", undefined, undefined, 15000);
-      const current = state.boards.find(
-        (entry: TitleBoard) => entry.id === board.id,
-      );
+      const { changes } = await api("/state/query", { groups: ["board"], boardId: board.id }, "POST", 15000);
+      const current = changes.board.value;
       if (!current) {
         setBlocked(true);
         setError(feedback("web.thisBoardNoLongerExistsOrIsInaccessible"));

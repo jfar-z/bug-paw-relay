@@ -165,12 +165,8 @@ test("环境编码工具启停按环境隔离，旧表单由服务端拒绝", as
     const api = `/api/environments/${env.id}/runtime-settings`;
     const oldPage = await second.newPage();
     await oldPage.goto(base + "/#chat");
-    const staleState = await (
-      await second.request.get(base + "/api/state")
-    ).json();
-    await oldPage.route("**/api/state", (route) =>
-      route.fulfill({ json: staleState }),
-    );
+    await expect(oldPage.locator(".chat")).toBeVisible();
+    await oldPage.route("**/api/state/query", route => route.fulfill({ json: { changes: {} } }));
     await oldPage
       .getByRole("button", { name: /新建会话.*Fixture project/ })
       .click();
@@ -230,7 +226,7 @@ test("环境编码工具启停按环境隔离，旧表单由服务端拒绝", as
     await target.getByRole("option", { name: "Codex", exact: true }).click();
     expect((await (await rejection).json()).code).toBe("CLI_DISABLED");
     await expect(oldPage.getByRole("alert")).toContainText(/禁用/);
-    await oldPage.unroute("**/api/state");
+    await oldPage.unroute("**/api/state/query");
     const oldConnector = await connect();
     await page.reload();
     await expect(page.getByText(/请升级连接器以在线安装 SDK/)).toBeVisible();
@@ -400,15 +396,17 @@ test("环境编码工具启停按环境隔离，旧表单由服务端拒绝", as
 /** SDK 缺失说明覆盖列表与概览，使用真实页面读取隔离环境的探测记录。 */
 test("Claude SDK 标签在窄屏及桌面可打开和关闭安装说明", async ({ browser }) => {
   const dataDir = mkdtempSync(join(tmpdir(), "relay-sdk-badge-"));
-  const { app, store, service } = await createApp({
+  const config = {
     dataDir,
     publicUrl: "https://relay.example",
     secureCookie: false,
     webDir: resolve("dist/web"),
-  });
+  };
+  const { app, store, service } = await createApp(config);
   const context = await browser.newContext({ hasTouch: true });
   try {
     const base = await app.listen({ host: "127.0.0.1", port: 0 });
+    config.publicUrl = base;
     const token = randomUUID();
     store.put("users", { username: "fixture" }, "owner");
     store.db

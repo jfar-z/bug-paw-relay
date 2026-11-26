@@ -1,4 +1,4 @@
-import { canPoll, pollVisible } from "./api.js";
+import { pollVisible } from "./api.js";
 import {
   ConversationHeader,
   BoardHeader,
@@ -294,11 +294,11 @@ function App() {
   const nextTheme = themes[(themes.indexOf(currentTheme) + 1) % themes.length];
   const [error, setError] = useState<UiFeedback>("");
   const [refreshError, setRefreshError] = useState<UiFeedback>("");
-  const refreshing = useRef(false);
-  const refreshQueued = useRef(false);
-  const agentOrderRevision = useRef(0);
-  const pinRevision = useRef(0);
-  const projectOrderRevision = useRef(0);
+  const queryEpoch = useRef(0);
+  const revisions = useRef<Record<string, string>>({});
+  const [readyPage, setReadyPage] = useState("");
+  const [missingBoard, setMissingBoard] = useState("");
+  const [archiveBoard, setArchiveBoard] = useState("");
   const [notice, setNotice] = useState<UiFeedback>("");
   const [modal, setModal] = useState<any>(null);
   const [online, setOnline] = useState(navigator.onLine);
@@ -315,7 +315,6 @@ function App() {
   async function saveAgentOrder(agentIds: string[]) {
     try {
       const saved = await api("/agents/order", { agentIds }, "PUT", 15000);
-      agentOrderRevision.current++;
       setState((current: any) => {
         const ranks = new Map<string, number>(saved.agentIds.map((id: string, index: number) => [id, index]));
         const rank = (a: { id: string }) => ranks.get(a.id) ?? ranks.size;
@@ -326,52 +325,54 @@ function App() {
       void refresh();
     }
   }
+  const boardId = page === "board" ? selected : undefined;
+  const includeArchived = !!boardId && archiveBoard === boardId;
+  const pageGroups: Record<string, string[]> = {
+    chat: ["sessions", "projects", "sessionProjectIds", "agents", "environments"],
+    board: boardId ? ["projects", "agents", "sessions", "environments"] : ["projects"],
+    agents: ["agents", "environments"],
+    environments: ["environments", "projects"],
+    settings: ["models"],
+    workbench: ["models", "sessions"],
+    "light-apps": ["projects", "sessions", "environments"],
+  };
+  const groups = ["boardSummaries", ...(pageGroups[page] || [])];
+  if (boardId && missingBoard !== boardId) groups.push("boardPage");
+  const pageKey = JSON.stringify([page, boardId]);
+  const scope = JSON.stringify([auth?.authenticated, pageKey, groups, includeArchived]);
+  const activeScope = useRef(scope);
+  activeScope.current = scope;
   async function refresh() {
-    // 慢请求未结束时跳过轮询，避免旧请求覆盖恢复后的状态。
-    if (refreshing.current) {
-      refreshQueued.current = true;
-      return;
-    }
-    refreshing.current = true;
+    if (!auth?.authenticated || activeScope.current !== scope) return;
+    const epoch = ++queryEpoch.current;
+    const key = (group: string) => group === "boardPage" ? JSON.stringify([group, boardId, includeArchived]) : group;
     try {
-      const agentRevision = agentOrderRevision.current;
-      const revision = projectOrderRevision.current;
-      const startedPinRevision = pinRevision.current;
-      const data = await api("/state");
-      // 置顶保存已触发补读，丢弃保存前开始的旧快照。
-      if (startedPinRevision !== pinRevision.current) return;
-      // 改名成功后，较早发出的轮询响应不能把标题回退到旧版本。
-      setState((current: any) => ({
-        ...data,
-        agents: agentRevision === agentOrderRevision.current ? data.agents : current.agents,
-        // 保存前发出的轮询不能覆盖刚确认的项目顺序。
-        sessionProjectIds:
-          revision === projectOrderRevision.current
-            ? data.sessionProjectIds
-            : current.sessionProjectIds,
-        boards: data.boards.map((entry: any) => {
-          const cached = current.boards.find(
-            (item: any) => item.id === entry.id,
-          );
-          return cached && cached.version > entry.version
-            ? {
-                ...cached,
-                pendingCount: entry.pendingCount,
-                syncStatus: entry.syncStatus,
-              }
-            : entry;
-        }),
-      }));
+      const known = Object.fromEntries(groups.map(group => [group, revisions.current[key(group)]]));
+      const { changes } = await api("/state/query", { groups, known, boardId, includeArchived }, "POST", 15000);
+      if (epoch !== queryEpoch.current || activeScope.current !== scope) return;
+      for (const group of Object.keys(changes)) revisions.current[key(group)] = changes[group].revision;
+      if (missingBoard && changes.boardSummaries?.value.some((b: any) => b.id === missingBoard))
+        setMissingBoard("");
+      if (Object.keys(changes).length) setState((current: any) => {
+        const next = { ...current };
+        for (const group of groups) if (changes[group]) next[group] = changes[group].value;
+        next.items = boardId ? next.boardPage?.items || [] : [];
+        next.boards = next.boardSummaries.map((summary: any) =>
+          boardId === summary.id && next.boardPage?.board.id === boardId
+            ? { ...next.boardPage.board, ...summary } : summary);
+        return next;
+      });
+      setReadyPage(pageKey);
       setRefreshError("");
-    } catch (e) {
-      setRefreshError(caughtFeedback(e as Error));
-    } finally {
-      refreshing.current = false;
-      // 返回页面时若旧请求尚未结束，随后再读一次，避免丢失本次校准。
-      if (refreshQueued.current) {
-        refreshQueued.current = false;
-        if (canPoll()) void refresh();
+    } catch (error: any) {
+      if (epoch !== queryEpoch.current || activeScope.current !== scope) return;
+      setRefreshError(caughtFeedback(error));
+      if (error.status === 404 && boardId) {
+        // 目录删除后保留已打开的编辑对话框，由用户关闭草稿。
+        delete revisions.current.boardSummaries;
+        setMissingBoard(boardId);
       }
+      if (error.status === 401) void readAuth().catch(e => setAuthError(caughtFeedback(e)));
     }
   }
   useEffect(() => {
@@ -380,6 +381,8 @@ function App() {
     checkAuth();
     addEventListener("online", checkAuth);
     const applyRoute = (next: string) => {
+      if (next.split("/").slice(0, 2).join("/") !== currentRoute.current.split("/").slice(0, 2).join("/"))
+        setArchiveBoard("");
       currentRoute.current = next;
       setRoute(next);
       setDrawer(false);
@@ -429,16 +432,22 @@ function App() {
     saveAppearance("relay-theme", value);
   }
   useEffect(() => {
-    if (!auth?.authenticated) return;
-    return pollVisible(refresh, 1000, ["focus", "pageshow", "online", "hashchange"]);
-  }, [auth?.authenticated]);
+    if (!auth?.authenticated) {
+      revisions.current = {};
+      setReadyPage("");
+      setState(emptyState);
+      return;
+    }
+    // 页面仅保留当前看板卡片；重新进入或更改归档范围时重新取得对应投影。
+    for (const key of Object.keys(revisions.current)) if (key.startsWith("[")) delete revisions.current[key];
+    return pollVisible(refresh, 2000, ["focus", "pageshow", "online"]);
+  }, [scope]);
   const sessionProjects = orderedSessionProjects(
     state.projects,
     state.sessionProjectIds,
   );
   const saveProjectOrder = async (ids: string[]) => {
     const { projectIds } = await api("/projects/order", { projectIds: ids }, "PUT");
-    projectOrderRevision.current++;
     setState((current: any) => ({ ...current, sessionProjectIds: projectIds }));
     void refresh();
   };
@@ -718,6 +727,7 @@ function App() {
             )}
           </div>
           <div className="content" data-page={page} key={page}>
+            {readyPage !== pageKey ? <p role="status">{tr("web.loading")}</p> : <>
             {page === "ui" && <UiShowcase />}
             {page === "workbench" && (
               <WorkbenchPage
@@ -735,7 +745,6 @@ function App() {
                 state={state}
                 selected={selected}
                 onPinSaved={(id: string, pinOrder: number | null) => {
-                  pinRevision.current++;
                   setState((current: any) => ({
                     ...current,
                     sessions: current.sessions.map((row: any) => row.id === id ? { ...row, pinOrder } : row),
@@ -749,9 +758,11 @@ function App() {
             {page === "board" && (
               <Boards
                 key={selected}
+                archived={includeArchived}
+                setArchived={(value: boolean) => setArchiveBoard(value ? selected : "")}
                 onFlowDirty={setFlowDirty}
                 requestFlowLeave={requestFlowLeave}
-                onTitleSaved={(updated: any) =>
+                onTitleSaved={(updated: any) => {
                   setState((current: any) => ({
                     ...current,
                     boards: current.boards.map((entry: any) =>
@@ -760,8 +771,9 @@ function App() {
                         ? { ...entry, ...updated }
                         : entry,
                     ),
-                  }))
-                }
+                  }));
+                  void refresh();
+                }}
                 state={state}
                 selected={selected}
                 edit={edit}
@@ -864,6 +876,7 @@ function App() {
                 </SettingsLayout>
               </Page>
             )}
+            </>}
           </div>
         </main>
         {notice && (
@@ -982,27 +995,9 @@ function App() {
             onRefresh={refresh} onClose={() => location.replace("#board/" + selected)} />
         )}
         {modal?.type === "item" && (
-          <Modal
-            title={tr(modal.targetId ? "web.handoffAndAdvance" : "web.workItemDetails")}
-            onClose={() => setModal(null)}
-          >
-            <ItemDetail
-              key={modal.item.id + ":" + modal.item.version}
-              onEdited={(updated: any) => {
-                setModal({ type: "item", item: updated });
-                setNotice(feedback("web.saved"));
-                void refresh();
-              }}
-              initialTarget={modal.targetId}
-              initialItem={modal.item}
-              item={
-                state.items.find((i: any) => i.id === modal.item.id && i.version >= modal.item.version) ||
-                modal.item
-              }
-              state={state}
-              onSaved={saved}
-            />
-          </Modal>
+          <LinkedItem key={modal.item.id} boardId={modal.item.boardId} itemId={modal.item.id}
+            initialItem={modal.item} initialTarget={modal.targetId} state={state}
+            onRefresh={refresh} onClose={() => setModal(null)} />
         )}
       </AppShell>
     </IdentityContext.Provider>
@@ -1491,6 +1486,8 @@ function ItemAttention({ item }: { item: any }) {
   );
 }
 function Boards({
+  archived,
+  setArchived,
   onTitleSaved,
   onFlowDirty,
   requestFlowLeave,
@@ -1504,9 +1501,9 @@ function Boards({
 }: any) {
   useLocale();
   const board =
-    state.boards.find((b: any) => b.id === selected) || state.boards[0];
+    state.boards.find((b: any) => b.id === selected);
   const [search, setSearch] = useState("");
-  const [archived, setArchived] = useState(false);
+
   const [view, setView] = useState("items");
   const [flowNotice, setFlowNotice] = useState<UiFeedback>("");
   // 每个看板保留结果未知的复制操作，成功后才允许下一次复制。
@@ -1558,9 +1555,6 @@ function Boards({
         </PageHead>
         <div className="board-catalog">
           {state.boards.map((b: any) => {
-            const items = state.items.filter(
-              (i: any) => i.boardId === b.id && !i.archived,
-            );
             // 服务端汇总包含人工等待，排除归档与完成项，并按工作项去重。
             const attention = b.pendingCount;
             return (
@@ -1577,11 +1571,11 @@ function Boards({
                 <h2>{b.name}</h2>
                 <p>
                   {state.projects.find((p: any) => p.id === b.projectId)?.name}{" "}
-                  · {b.stages.length} {tr("web.stagesAlternative298")}
+                  · {b.stageCount} {tr("web.stagesAlternative298")}
                 </p>
                 <Row>
                   <small>
-                    {items.length} {tr("web.workItemsAlternative299")}
+                    {b.itemCount} {tr("web.workItemsAlternative299")}
                   </small>
                   <Badge>
                     {attention > 0
@@ -1626,7 +1620,7 @@ function Boards({
         />
       )}
       {!board ? (
-        <Empty title={tr("web.createYourFirstBoard")}>
+        <Empty title={tr(selected ? "web.thisBoardNoLongerExistsOrIsInaccessible" : "web.createYourFirstBoard")}>
           {tr("web.registerAProjectOnTheSessionsPageThenConfigure")}
         </Empty>
       ) : (
@@ -1939,12 +1933,12 @@ function Boards({
     </Page>
   );
 }
-/** 按概览、执行操作、交接表单和倒序历史组织工作项详情。 */
 /** 深链独立读取归档及筛选外的工作项，切换路由时旧响应随组件失效。 */
-function LinkedItem({ boardId, itemId, state, onRefresh, onClose }: any) {
+function LinkedItem({ boardId, itemId, initialItem, initialTarget, state, onRefresh, onClose }: any) {
   const [detail, setDetail] = useState<any>();
   const [error, setError] = useState<UiFeedback>("");
   const [revision, setRevision] = useState(0);
+  const card = state.items.find((row: any) => row.id === itemId);
   useEffect(() => {
     let active = true;
     setError("");
@@ -1952,19 +1946,20 @@ function LinkedItem({ boardId, itemId, state, onRefresh, onClose }: any) {
       .then(value => { if (active) setDetail(value); })
       .catch(err => { if (active) setError(caughtFeedback(err)); });
     return () => { active = false; };
-  }, [boardId, itemId, revision]);
+  }, [boardId, itemId, revision, card?.version]);
   const board = state.boards.find((row: any) => row.id === boardId);
-  return <Modal title={tr("web.workItemDetails")} onClose={onClose}>
+  return <Modal title={tr(initialTarget ? "web.handoffAndAdvance" : "web.workItemDetails")} onClose={onClose}>
     {error ? <><ErrorBox error={error} /><Button onClick={() => setRevision(v => v + 1)}>{tr("web.retry")}</Button></>
       : !detail ? <p role="status">{tr("web.loading")}</p>
-      : !board ? <p role="alert">{tr("web.boardCard.unavailable")}</p>
-      : <ItemDetail key={detail.item.id + ":" + detail.item.version}
-          state={{...state, handoffs: detail.handoffs}} initialItem={detail.item}
-          item={state.items.find((row: any) => row.id === itemId && row.version > detail.item.version) || detail.item}
-          onEdited={() => { setRevision(v => v + 1); void onRefresh(); }}
+      : !board?.stages ? <p role="alert">{tr("web.boardCard.unavailable")}</p>
+      : <ItemDetail key={detail.item.id + ":" + revision} initialTarget={initialTarget}
+          state={{...state, handoffs: detail.handoffs}} initialItem={revision ? detail.item : initialItem || detail.item}
+          item={card?.version === detail.item.version ? { ...detail.item, ...card } : detail.item}
+          onEdited={(updated: any) => { setDetail({ ...detail, item: updated }); setRevision(v => v + 1); void onRefresh(); }}
           onSaved={() => { onClose(); void onRefresh(); }} />}
   </Modal>;
 }
+/** 按概览、执行操作、交接表单和倒序历史组织工作项详情。 */
 function ItemDetail({ item, initialItem, initialTarget, state, onSaved, onEdited }: any) {
   useLocale();
   const [editor, setEditor] = useState<EditView | null>(null);

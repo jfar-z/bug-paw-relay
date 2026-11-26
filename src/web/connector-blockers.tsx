@@ -51,9 +51,9 @@ export function ConnectorBlockers({
       if (generation.current !== token) return;
       setDetails(result);
       if (!retry) return;
-      const state = await api("/state", undefined, undefined, 15000);
+      const { changes } = await api("/state/query", { groups: ["environments"] }, "POST", 15000);
       if (generation.current !== token) return;
-      const update = state.environments.find(
+      const update = changes.environments.value.find(
         (entry: { id: string }) => entry.id === environment.id,
       )?.connectorUpdate;
       if (

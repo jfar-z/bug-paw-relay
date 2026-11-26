@@ -1,6 +1,6 @@
 import { BoardConfirmations, SessionBoardCard, useBoardConfirmations, type BoardCard } from "./session-boards.js";
 import { slashInput } from "../shared/slash-commands.js";
-import { canPoll, pollVisible } from "./api.js";
+import { canPoll, pollDelay } from "./api.js";
 import { SessionLightConfirmations, SessionPublication, useSessionLightConfirmations, useSessionPublications } from "./light-apps.js";
 import { CliBrandIcon, WorkspaceLayout } from "./ui/index.js";
 import {
@@ -225,6 +225,8 @@ export function Sessions({
   const [search, setSearch] = useState("");
   const [history, setHistory] = useState<any>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<UiFeedback>("");
+  const [syncIncomplete, setSyncIncomplete] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [error, setError] = useState<UiFeedback>("");
   const [draft, setDraft] = useState("");
@@ -254,6 +256,7 @@ export function Sessions({
   currentSession.current = session;
   const refreshState = useRef(onRefresh);
   refreshState.current = onRefresh;
+  const checkIndexedState = useRef<(status: string, run: string) => void>(() => {});
   const refreshHistory = useRef<() => void>(() => {});
   const messages = useRef<HTMLDivElement>(null);
   const follow = useRef(true);
@@ -264,6 +267,8 @@ export function Sessions({
     setCommandReceipt(null);
     setFailedExecution("");
     setDetailsOpen(false);
+    setHistoryError("");
+    setSyncIncomplete(false);
     setHistory(null);
     setHistoryLoading(!!session && !native);
     setHistoryLoaded(false);
@@ -280,32 +285,61 @@ export function Sessions({
     let cancelled = false;
     let loading = false;
     let reloadQueued = false;
-    let revision = 0;
+    const revisions = { status: 0, title: 0, interactions: 0 };
+    const sequence = new Map<string, number>();
+    let runningRead: string | undefined;
+    let terminalRun: string | undefined;
+    let retries = 0;
+    let timer: ReturnType<typeof setTimeout>;
+    const terminal = (status: string) => ["completed", "failed", "cancelled"].includes(status);
+    // 仅在恢复任务未收敛时退避；旧连接器没有可核对的标识时保留手动入口。
+    const retry = () => {
+      clearTimeout(timer);
+      if (retries < 4) timer = setTimeout(() => void load(), Math.max(pollDelay(), 500 * 2 ** retries++));
+      setSyncIncomplete(true);
+    };
     // 首次读取独立于 SSE 元数据，后续对账不遮挡已有记录。
     let loaded = false;
     const load = async () => {
-      if (cancelled) return;
+      if (cancelled || document.hidden) return;
+      if (pollDelay()) {
+        clearTimeout(timer);
+        timer = setTimeout(() => void load(), pollDelay());
+        return;
+      }
       if (loading) {
         reloadQueued = true;
         return;
       }
       loading = true;
       if (!loaded) setHistoryLoading(true);
-      const startedRevision = revision;
+      const started = { ...revisions };
+      const indexed = currentSession.current;
       try {
-        const snapshot = await api("/sessions/" + session.id + "/history");
+        const snapshot = await api("/sessions/" + session.id + "/history", undefined, undefined, 30000);
         if (!cancelled) {
+          for (const event of snapshot.events || []) {
+            sequence.set(event.executionId, Math.max(sequence.get(event.executionId) || 0, event.sequence || 0));
+          }
+          if (snapshot.status === "running" && (indexed?.status === "running" && indexed.executionId === snapshot.executionId ||
+            snapshot.events?.some((event: any) => event.executionId === snapshot.executionId)))
+            runningRead = snapshot.executionId;
+          if (snapshot.executionId !== snapshot.historyExecutionId) reloadQueued = true;
+          clearTimeout(timer);
+          if (terminal(snapshot.status)) {
+            terminalRun = snapshot.executionId;
+            if (snapshot.terminalHistory !== "confirmed") retry();
+            else setSyncIncomplete(false);
+          } else setSyncIncomplete(false);
           loaded = true;
           setHistoryLoaded(true);
           setHistory((previous: any) => ({
             ...snapshot,
-            ...(revision !== startedRevision
-              ? {
-                  status: previous?.status || snapshot.status,
-                  interactions: previous?.interactions || snapshot.interactions,
-                  title: previous?.title || snapshot.title,
-                }
-              : {}),
+            status: revisions.status !== started.status ? previous?.status : snapshot.status,
+            title: revisions.title !== started.title ? previous?.title : snapshot.title,
+            interactions: revisions.interactions !== started.interactions || snapshot.executionId !== snapshot.historyExecutionId
+              ? previous?.interactions : snapshot.interactions,
+            nativeHistory: snapshot.historyError && !snapshot.nativeHistory ? previous?.nativeHistory : snapshot.nativeHistory,
             // 增量信号与历史补读可能交错，按稳定标识保留会话内已有回执。
             boardCards: [...new Map<string, BoardCard>(([...(previous?.boardCards || []), ...(snapshot.boardCards || [])] as BoardCard[])
               .filter(card => card.sessionId === session.id).map(card => [card.id, card])).values()],
@@ -315,39 +349,64 @@ export function Sessions({
             ),
             events: mergeSessionEvents(snapshot.events, previous?.events),
           }));
-          setError("");
+          setHistoryError("");
         }
       } catch (e) {
-        if (!cancelled) setError(caughtFeedback(e as Error));
+        if (!cancelled) {
+          setHistoryError(caughtFeedback(e as Error));
+          retry();
+        }
       } finally {
         loading = false;
         if (!cancelled) setHistoryLoading(false);
         // 终态事件可能在历史请求期间到达，随后补读一次，不能丢失对账。
         if (reloadQueued && !cancelled) {
           reloadQueued = false;
-          if (canPoll()) void load();
+          void load();
         }
       }
     };
-    refreshHistory.current = () => void load();
+    const recover = () => {
+      clearTimeout(timer);
+      retries = 0;
+      void load();
+    };
+    refreshHistory.current = recover;
+    const reconcileEnd = (status: string, executionId: string) => {
+      if (!terminal(status) || terminalRun === executionId) return;
+      terminalRun = executionId;
+      recover();
+    };
+    // 入队时的回读可能早于环境接收新执行；首次进入运行态时补齐环境回显。
+    const reconcileState = (status: string, run: string) => {
+      if (status === "running" && loaded && run !== runningRead && !sequence.has(run)) {
+        runningRead = run;
+        recover();
+      } else reconcileEnd(status, run);
+    };
+    checkIndexedState.current = reconcileState;
     const stream = new EventSource("/api/sessions/" + session.id + "/events");
     stream.onmessage = (message) => {
       if (cancelled) return;
       const data = JSON.parse(message.data);
-      revision++;
-      if (data.type === "ready") {
+
+      if (data.type === "ready" || data.type === "environment-ready") {
         if (canPoll()) void boardConfirmations.refresh();
         setStreaming(true);
         if (canPoll()) void lightConfirmations.refresh();
-        if (canPoll()) void load();
+        recover();
       } else if (data.type === "light-confirmation") {
         if (canPoll()) void lightConfirmations.refresh();
       } else if (data.type === "board-confirmation") {
         if (canPoll()) void boardConfirmations.refresh();
       } else if (data.type === "board-card") {
-        if (canPoll()) void load();
+        void load();
       } else if (data.type === "deleted") {
+        cancelled = true;
+        clearTimeout(timer);
         stream.close();
+        setSyncIncomplete(false);
+        setHistoryLoading(false);
         setHistory(null);
         setError(
           feedback("web.thisSessionWasDeletedNativeEnvironmentRecordsAreKept"),
@@ -357,48 +416,65 @@ export function Sessions({
         if (data.status === "failed") setFailedExecution(data.executionId);
         // 旧执行的迟到事件不能影响新一轮；原生终态由服务端确认后才清理交互。
         if (data.executionId !== currentSession.current?.executionId) return;
-        const terminal = ["completed", "failed", "cancelled"].includes(
-          data.status,
-        );
+        revisions.status++;
+        const ended = terminal(data.status);
         setHistory((h: any) => ({
           ...h,
+          executionId: data.executionId,
           status: data.status,
-          ...(terminal ? { interactions: [] } : {}),
+          ...(ended ? { interactions: [] } : {}),
         }));
-        if (terminal) setAnswer(null);
-        if (canPoll()) void load();
+        if (ended) { revisions.interactions++; setAnswer(null); }
+        reconcileState(data.status, data.executionId);
         if (canPoll()) void refreshState.current?.();
       } else if (data.type === "metadata") {
+        if (data.title) revisions.title++;
         if (data.title) setHistory((h: any) => ({ ...h, title: data.title }));
       } else if (data.type === "update") {
+        const event = data.event;
+        // 迟到序号仅补时间线，旧交互不能取代已处理的新状态。
+        const fresh = !event?.sequence || event.sequence > (sequence.get(event.executionId) || 0);
+        if (fresh && data.title) revisions.title++;
+        if (fresh && data.status) revisions.status++;
+        if (fresh && data.interactions) revisions.interactions++;
+        if (event?.sequence) {
+          const last = sequence.get(event.executionId) || 0;
+          sequence.set(event.executionId, Math.max(last, event.sequence));
+          if (loaded && event.sequence > last + 1) recover();
+        }
         setHistory((h: any) => ({
           ...h,
-          ...(data.title ? { title: data.title } : {}),
-          ...(data.status ? { status: data.status } : {}),
-          ...(data.interactions ? { interactions: data.interactions } : {}),
+          ...(fresh && data.title ? { title: data.title } : {}),
+          ...(fresh && data.status ? { executionId: data.executionId, status: data.status } : {}),
+          ...(fresh && data.interactions ? { interactions: data.interactions } : {}),
           questionRecords: data.questionRecords
             ? mergeQuestions(h?.questionRecords, data.questionRecords)
             : h?.questionRecords,
           events: mergeSessionEvents(h?.events, data.event ? [data.event] : []),
         }));
-        if (canPoll() && ["completed", "failed", "cancelled"].includes(data.status))
-          void load();
+        if (fresh) reconcileEnd(data.status, data.executionId);
       }
     };
     stream.onerror = () => {
-      if (!cancelled) setStreaming(false);
+      if (!cancelled) { setStreaming(false); if (!loaded && !loading) recover(); }
     };
-    // 原生历史落盘可能晚于终态通知，且环境重连不一定重建页面 SSE；保留周期补读。
-    // 复用 loading/reloadQueued 合并请求，避免旧快照覆盖增量，不另建补偿队列。
-    const stop = pollVisible(load, 5000);
+    document.addEventListener("visibilitychange", recover);
+    window.addEventListener("pageshow", recover);
     return () => {
       cancelled = true;
       stream.close();
       setStreaming(false);
-      stop();
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", recover);
+      window.removeEventListener("pageshow", recover);
+      checkIndexedState.current = () => {};
       refreshHistory.current = () => {};
     };
   }, [selected, session?.id, native]);
+  // 先于索引到达的状态通知由新索引补偿，每一轮只在必要转换时校准。
+  useEffect(() => {
+    if (historyLoaded && session?.executionId) checkIndexedState.current(session.status, session.executionId);
+  }, [historyLoaded, session?.executionId, session?.status]);
   // 本地控制台可以在线切换模式，回到会话页时刷新可用入口。
   const modeEnvironments = state.environments
     .filter((env: SessionEnvironment) => env.online && env.capabilities?.includes("claude-terminal-v1"))
@@ -674,7 +750,8 @@ export function Sessions({
       setMentions([]);
       uploads.clear();
       sendIdentity.current = null;
-      setHistory((h: any) => ({ ...h, status: result.status || h?.status }));
+      setHistory((h: any) => h?.executionId === result.executionId && h?.status
+        ? h : { ...h, executionId: result.executionId, status: result.status || h?.status });
       setPending({
         text: displayText,
         previousMatches,
@@ -800,7 +877,7 @@ export function Sessions({
   );
   const timeline = sessionPublicationEvents(
     events,
-    [...(historyLoaded || error || events.length ? publications.rows || [] : []),
+    [...(historyLoaded || historyError || events.length ? publications.rows || [] : []),
       ...(history?.boardCards || []).filter((card: BoardCard) => card.sessionId === selected)
         .map((card: BoardCard) => ({...card, boardCard: true}))],
     history,
@@ -1148,7 +1225,7 @@ export function Sessions({
               ]} />
               <Status value={status} />
             </Modal>}
-            {!list && <ErrorBox error={error} />}
+            {!list && <><ErrorBox error={error} /><ErrorBox error={historyError} /></>}
             {native && deletedAgent && (
               <div><p role="status">{tr("errors.SESSION_AGENT_DELETED.reselect")}</p>{agentPicker()}</div>
             )}
@@ -1176,7 +1253,10 @@ export function Sessions({
               collection={lightConfirmations}
               onDecision={publications.refresh}
             />
-            {error && history && (
+            {syncIncomplete && <p role="status">{tr("web.sessionHistoryUnconfirmed")}{" "}
+              <Button onClick={() => refreshHistory.current()}>{tr("web.retry")}</Button>
+            </p>}
+            {historyError && history && (
               <p className="note">
                 {tr("web.theContentBelowWasLoadedEarlierOnThisPage")}
               </p>
@@ -1279,7 +1359,7 @@ export function Sessions({
                 )}
                 {historyLoaded &&
                   !historyLoading &&
-                  !error &&
+                  !error && !historyError && !syncIncomplete &&
                   !history?.historyError &&
                   !timeline.length &&
                   !pending && (

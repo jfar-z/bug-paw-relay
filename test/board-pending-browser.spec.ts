@@ -159,7 +159,7 @@ for (const width of [1440, 390]) {
         ).toBeVisible();
       }
       // 读取失败保留上一快照及计数，并明确展示错误。
-      await page.route("**/api/state", (route) =>
+      await page.route("**/api/state/query", (route) =>
         route.fulfill({
           status: 503,
           contentType: "application/json",
@@ -168,7 +168,7 @@ for (const width of [1440, 390]) {
       );
       await expect(page.getByRole("alert")).toBeVisible({ timeout: 3000 });
       await expect(page.getByText("2 个待处理", { exact: true })).toBeVisible();
-      await page.unroute("**/api/state");
+      await page.unroute("**/api/state/query");
       await page.goto(base + "/#board");
       await expect(page.locator(".board-card")).toContainText("2 个待处理");
       await page.screenshot({ path: `.vibe/board-pending-${width}.png` });
