@@ -34,6 +34,10 @@ export default defineConfig({
       },
     },
   ],
-  build: { outDir: "dist/web" },
+  build: {
+    outDir: "dist/web",
+    // 所有数学字体均以同源文件交付，符合应用的字体加载策略。
+    assetsInlineLimit: (file) => /KaTeX_.*\.woff2?$/.test(file) ? false : undefined,
+  },
   server: { proxy: { "/api": "http://127.0.0.1:3180" } },
 });

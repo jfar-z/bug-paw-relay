@@ -1,3 +1,4 @@
+import { MathSpan, remarkSessionMath } from "./session-math.js";
 import { MarkdownCodeBlock, SurfaceButton } from "./ui/index.js";
 import { AttachmentLink } from "./session-attachments.js";
 import { t as tr, useLocale, currentLocale, displayError } from "./locale.js";
@@ -18,6 +19,7 @@ import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   ArrowDown,
+  Copy,
   ChevronDown,
   ChevronRight,
   Wrench,
@@ -72,6 +74,27 @@ function MarkdownFileLink({ children, href }: ComponentProps<"a">) {
       </SurfaceButton>
     );
   return <span>{children}</span>;
+}
+
+/** 复制消息模型上的原文，避免读取排版结果或逐字动画的中间状态。 */
+export function CopyMessage({ text }: { text: string }) {
+  useLocale();
+  const [result, setResult] = useState<"copied" | "failed">();
+  if (!text) return null;
+  return <div className="message-copy">
+    <Button variant="ghost" shape="icon" aria-label={tr("web.copyMessage")} title={tr("web.copyMessage")}
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(text);
+          setResult("copied");
+        } catch {
+          setResult("failed");
+        }
+      }}>
+      <Copy aria-hidden="true" />
+    </Button>
+    <small role="status">{result && tr(result === "copied" ? "web.messageCopied" : "web.messageCopyFailed")}</small>
+  </div>;
 }
 
 /** 平滑消费累计文本；保留组件身份，使完成事件不会重播或跳过尚未显示的尾部。 */
@@ -129,7 +152,7 @@ export const WorkbenchMarkdown = memo(function WorkbenchMarkdown({
     <div className="workbench-markdown">
       <FileLinkContext.Provider value={{ onFile, sessionId, online }}>
         <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
+          remarkPlugins={[remarkGfm, remarkSessionMath]}
           skipHtml={!sessionId}
           urlTransform={(url) =>
             onFile
@@ -140,6 +163,7 @@ export const WorkbenchMarkdown = memo(function WorkbenchMarkdown({
           }
           components={{
             a: MarkdownFileLink,
+            span: MathSpan,
             pre: MarkdownCodeBlock,
             // 本地图片也按用户点击读取，不在渲染 Markdown 时自动访问环境文件。
             img: ({ src, alt }) => {

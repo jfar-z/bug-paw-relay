@@ -35,7 +35,7 @@ import { attachmentMessage } from "../shared/uploads.js";
 import { MentionComposer } from "./mention-composer.js";
 import type { Mention } from "../shared/mentions.js";
 import { WorkbenchActivityGroup } from "./workbench-content.js";
-import { WorkbenchMarkdown } from "./workbench-content.js";
+import { CopyMessage, WorkbenchMarkdown } from "./workbench-content.js";
 import { EnvironmentFile } from "./environment-file.js";
 import { SessionCard, SessionBatch } from "./session-management.js";
 import { createPortal } from "react-dom";
@@ -1426,6 +1426,7 @@ export function Sessions({
                         setFileHref(href);
                       }}
                     />
+                    <CopyMessage text={pending.text} />
                   </article>
                 )}
                 {historyLoaded &&
@@ -1876,6 +1877,7 @@ function NativeEvent({
           online={online}
           onFile={onFile}
         />
+        <CopyMessage text={data.text} />
       </article>
     );
   if (type === "item/completed") {
@@ -1885,6 +1887,7 @@ function NativeEvent({
         <article className="message">
           {showIdentity && <MessageIdentity agent={agent} />}
           <WorkbenchMarkdown text={item.text || ""} onFile={onFile} />
+          <CopyMessage text={item.text} />
         </article>
       );
     if (item?.type === "userMessage") return null;
@@ -1918,6 +1921,7 @@ function NativeEvent({
             </details>
           ),
         )}
+        <CopyMessage text={data.message?.content?.filter((c: any) => c.type === "text").map((c: any) => c.text).join("\n\n")} />
       </article>
     );
   if (type === "result" && data.is_error)

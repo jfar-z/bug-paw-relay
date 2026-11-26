@@ -276,6 +276,9 @@ export const webMessages = {
   "light.changeRecorded": { "zh-CN": "修改意见", en: "Changes requested" },
   "light.selection": { "zh-CN": "应用内选择", en: "In-app selection" },
   "web.plainTextCode": { "zh-CN": "纯文本", en: "Plain text" },
+  "web.copyMessage": { "zh-CN": "复制消息原文", en: "Copy message source" },
+  "web.messageCopied": { "zh-CN": "已复制消息原文", en: "Message source copied" },
+  "web.messageCopyFailed": { "zh-CN": "复制消息失败", en: "Could not copy message" },
   "web.copyCode": { "zh-CN": "复制代码", en: "Copy code" },
   "web.codeCopied": { "zh-CN": "已复制代码", en: "Code copied" },
   "web.codeCopyFailed": {

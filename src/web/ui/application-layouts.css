@@ -2198,3 +2198,21 @@ dialog[data-layout="fullscreen"] > header h2 {
   white-space: nowrap;
 }
 .light-card-source-full { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* 超宽公式在消息内部滚动，保留当前主题的前景色和正常字号。 */
+.session-math-display {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.session-math-display .katex-display {
+  width: max-content;
+  min-width: 100%;
+}
+.session-math-inline {
+  display: inline-block;
+  max-width: 100%;
+  overflow-x: auto;
+  vertical-align: middle;
+}
+.message-copy { display: flex; align-items: center; gap: 8px; }

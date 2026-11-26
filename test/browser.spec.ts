@@ -746,12 +746,30 @@ test("工作台竖屏、快捷键、Markdown、平滑输出与条件跟随", asy
       baseUrl: "https://example.invalid/v1",
     });
     const markdown =
-      "## 渲染检查\n\n**重点** 与 [安全链接](https://example.com)\n\n- 第一项\n- 第二项\n\n> 引用内容\n\n```ts\nconst value = 1;\n```\n\n| 名称 | 状态 |\n| --- | --- |\n| 测试 | 完成 |\n\n<script>window.badMarkdown=true</script>\n[危险链接](javascript:alert(1))";
+      "## 渲染检查\n\n**重点** 与 [安全链接](https://example.com)\n\n- 第一项\n- 第二项\n\n> 引用内容\n\n```ts\nconst value = \"$literal$\";\n```\n\n| 名称 | 状态 |\n| --- | --- |\n| 测试 | 完成 |\n\n<script>window.badMarkdown=true</script>\n[危险链接](javascript:alert(1))" +
+      "\n\n" + String.raw`真实概率为 \(y_c\)，预测概率为 $p_c$。
+
+\[L=-\sum_{c=1}^{C} y_c\ln p_c\]
+
+$$
+L=\frac{1}{N}` + "+x".repeat(90) + String.raw`
+$$
+
+$5 和 $10，(普通) [普通]，$\unknowncommand$，\(未闭合，$z_i$。` +
+      "\n\n`$literal$`";
     const transcript = Array.from({ length: 24 }, (_, i) => ({
       role: i % 2 ? "assistant" : "user",
       text: `历史消息 ${i}\n\n` + "用于验证较长历史的滚动位置。".repeat(12),
     }));
-    transcript.push({ role: "assistant", text: markdown });
+    const [firstBlock, ...remaining] = markdown.split("\n\n");
+    const reply = {
+      role: "assistant", text: markdown,
+      blocks: [
+        { id: "heading", type: "text", text: firstBlock },
+        { id: "body", type: "text", text: remaining.join("\n\n") },
+      ],
+    };
+    transcript.push(reply);
     const session = store.put("workbench", {
       title: "工作台交互验收",
       modelId: model.id,
@@ -807,9 +825,29 @@ test("工作台竖屏、快捷键、Markdown、平滑输出与条件跟随", asy
       );
     await expect(messages).toBeVisible();
     await expect.poll(distance).toBeLessThanOrEqual(2);
+    await expect(messages.locator(".katex")).toHaveCount(5);
+    await expect(messages.locator("mfrac")).toHaveCount(1);
+    await expect(messages.locator("munderover")).toHaveCount(1);
+    await expect(messages.locator("msub").first()).toBeAttached();
+    await expect(messages).toContainText(String.raw`$5 和 $10，(普通) [普通]，$\unknowncommand$，\(未闭合`);
+    await expect(messages.locator("code").getByText("$literal$", { exact: true })).toBeVisible();
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+    await messages.getByRole("button", { name: "复制消息原文" }).last().click();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(markdown);
+    const wideFormula = messages.locator(".session-math-display").last();
+    for (const theme of ["light", "dark", "bug"]) {
+      await page.evaluate(value => { document.documentElement.dataset.theme = value; }, theme);
+      await wideFormula.scrollIntoViewIfNeeded();
+      expect(await wideFormula.evaluate(node => {
+        node.scrollLeft = node.scrollWidth;
+        return node.scrollLeft > 0 && document.documentElement.scrollWidth <= innerWidth;
+      })).toBe(true);
+      await messages.locator(".session-math-display").first()
+        .screenshot({ path: `.vibe/audit/math-${theme}.png` });
+    }
     await expect(messages.locator("h2")).toHaveText("渲染检查");
     await expect(messages.locator("table td")).toHaveCount(2);
-    await expect(messages.locator("pre code")).toHaveText("const value = 1;\n");
+    await expect(messages.locator("pre code")).toHaveText("const value = \"$literal$\";\n");
     await expect(messages.locator("script")).toHaveCount(0);
     expect(
       await messages
@@ -941,14 +979,25 @@ test("工作台竖屏、快捷键、Markdown、平滑输出与条件跟随", asy
     await expect(messages).toBeVisible();
     await expect.poll(distance).toBeLessThanOrEqual(2);
     await page.emulateMedia({ reducedMotion: "reduce" });
+    const prefix = "减少动态效果完整显示\n\n$$\n" + String.raw`\frac{1}{N}` + "\n$";
     store.put(
       "workbench",
-      { status: "running", partial: "减少动态效果完整显示" },
+      { status: "running", partial: prefix },
       session.id,
     );
     await expect(messages.locator(".message").last()).toContainText(
       "减少动态效果完整显示",
     );
+    const latest = messages.locator(".message").last();
+    await expect(latest.locator(".katex")).toHaveCount(0);
+    store.put("workbench", { partial: prefix + "$" }, session.id);
+    await expect(latest.locator("mfrac")).toHaveCount(1);
+    store.put("workbench", {
+      status: "idle", partial: "",
+      transcript: [...transcript, { role: "assistant", text: prefix + "$" }],
+    }, session.id);
+    await page.reload();
+    await expect(latest.locator("mfrac")).toHaveCount(1);
     for (const theme of ["dark", "bug", "light"]) {
       await page.evaluate((value) => {
         document.documentElement.dataset.theme = value;

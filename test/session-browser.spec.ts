@@ -544,6 +544,15 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
     await expect(
       page.locator(".messages").getByText("正在检查项目", { exact: true }),
     ).toBeVisible();
+    // 定界符分两次到达，完成后与刷新时的环境历史使用同一排版。
+    emit("item/agentMessage/delta", { itemId: "a", delta: "\n\n\\(y_c\\" });
+    await expect(page.locator(".messages .katex")).toHaveCount(0);
+    emit("item/agentMessage/delta", { itemId: "a", delta: ")" });
+    await expect(page.locator(".messages msub")).toHaveCount(1);
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.locator(".messages .message").filter({ has: page.locator("msub") })
+      .getByRole("button", { name: "复制消息原文" }).click();
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("正在检查项目\n\n\\(y_c\\)");
     emit("relay/approval/auto", { interactionId: "approval-tool", itemId: "tool", source: "policy" });
     emit("item/started", {
       item: { id: "tool", type: "commandExecution", command: "pwd" },
@@ -634,6 +643,7 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
     snapshotEvents = allEvents.filter(e => e.type !== "relay/approval/auto");
     snapshotStatus = "running";
     await page.reload();
+    await expect(page.locator(".messages msub")).toHaveCount(1);
     await expect(
       page.locator(".messages").getByText("正在检查项目", { exact: true }),
     ).toBeVisible();

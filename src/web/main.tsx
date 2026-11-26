@@ -110,9 +110,11 @@ import { Editor, options } from "./editors.js";
 import { AgentsPage, EnvironmentsPage, SettingsLayout } from "./pages.js";
 import {
   WorkbenchReply,
+  CopyMessage,
   WorkbenchMessages,
   useWorkbenchViewport,
 } from "./workbench-content.js";
+import "katex/dist/katex.min.css";
 import "./ui/foundation.css";
 import "./ui/collection-layouts.css";
 import "./ui/application-layouts.css";
@@ -2747,6 +2749,7 @@ function WorkbenchPage({ state, models, selected, onError }: any) {
                   ) : (
                     <WorkbenchReply message={m} />
                   )}
+                  <CopyMessage text={m.text || m.blocks?.filter((b: any) => b.type === "text").map((b: any) => b.text).join("\n\n") || ""} />
                 </article>
               ))}
               <ErrorBox
