@@ -504,7 +504,7 @@ test("加载失败重试、空流程与英文离线提示", async ({ page, conte
     await expect(open).toBeVisible();
     await changeServerLanguage(page, "en");
     let fail = true;
-    await page.route("**/api/state", async (route) => {
+    await page.route("**/api/state/query", async (route) => {
       if (fail)
         await route.fulfill({
           status: 503,

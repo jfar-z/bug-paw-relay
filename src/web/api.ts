@@ -31,6 +31,11 @@ export class AgentDeletionBlocked extends FeedbackError {
 
 let retryAt = 0;
 
+/** 一次性对账同样遵守服务端给出的恢复期限。 */
+export function pollDelay() {
+  return Math.max(0, retryAt - Date.now());
+}
+
 /** 同一标签页的后台读取共用服务端退避期限，写操作仍由用户发起。 */
 export function canPoll() {
   return !document.hidden && Date.now() >= retryAt;
@@ -86,7 +91,7 @@ export async function api(
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  if (response.status === 429 && body === undefined && (!method || method === "GET")) {
+  if (response.status === 429 && (path === "/state/query" || (body === undefined && (!method || method === "GET")))) {
     const header = response.headers.get("Retry-After")?.trim() ?? "";
     const now = Date.now();
     const deadline = /^\d+$/.test(header) ? now + Number(header) * 1000 : Date.parse(header);

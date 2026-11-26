@@ -283,6 +283,7 @@ for (const locale of ["zh-CN", "en"] as const)
       await second.locator("textarea").nth(1).fill("independent draft");
       await second.locator("textarea").nth(1).focus();
       const reads = historyReads;
+      await page.evaluate(() => window.dispatchEvent(new Event("pageshow")));
       await expect
         .poll(() => historyReads, { timeout: 10000 })
         .toBeGreaterThan(reads);

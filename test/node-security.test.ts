@@ -274,6 +274,49 @@ test("连接证明拒绝跨服务端、跨连接重放和旧版降级，未审�
   }
 });
 
+test("环境对账上线和重连通知送达同一条已认证会话 SSE", async () => {
+  const f = await fixture();
+  f.service.reconcile = async () => {};
+  const controller = new AbortController();
+  try {
+    const env = f.store.put("environments", { publicKey: f.publicKey, approved: true });
+    const session = f.store.put("sessions", { environmentId: env.id });
+    const login = token();
+    f.store.db.prepare("INSERT INTO auth_sessions VALUES(?,?,?)")
+      .run(digest(login), "owner", Date.now() + 60000);
+    const response = await fetch(f.options.publicUrl + "/api/sessions/" + session.id + "/events", {
+      headers: { cookie: "relay_session=" + login },
+      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]),
+    });
+    assert.equal(response.status, 200);
+    const reader = response.body!.pipeThrough(new TextDecoderStream()).getReader();
+    // 一直保留同一 HTTP 流，分块边界可以落在任意字符处。
+    let buffer = "";
+    async function nextFrame() {
+      while (!buffer.includes("\n\n")) {
+        const chunk = await reader.read();
+        assert.ok(!chunk.done);
+        buffer += chunk.value;
+      }
+      const end = buffer.indexOf("\n\n");
+      const frame = buffer.slice(0, end);
+      buffer = buffer.slice(end + 2);
+      return frame;
+    }
+    assert.match(await nextFrame(), /"type":"ready"/);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const node = await f.connect();
+      assert.ok((await f.request(node.ws, f.proof(env.id, node.challenge.challenge))).result.ok);
+      assert.match(await nextFrame(), /"type":"environment-ready"/);
+      node.ws.close();
+      await once(node.ws, "close");
+    }
+  } finally {
+    controller.abort();
+    await f.close();
+  }
+});
+
 test("对账中立即占用身份名额，旧连接退出不会释放新连接名额", async () => {
   const f = await fixture();
   const resolvers: (() => void)[] = [];

@@ -160,6 +160,7 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
       "false",
     );
     await page.unroute(`**/api/sessions/${session.id}/history`);
+    await page.evaluate(() => window.dispatchEvent(new Event("pageshow")));
     // 切换到另一会话失败时结束加载，不把失败误显示成空历史。
     await page.route(`**/api/sessions/${second.id}/history`, (route) =>
       route.fulfill({
@@ -178,14 +179,14 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
     ).toHaveCount(0);
     await page.unroute(`**/api/sessions/${second.id}/history`);
     await page.setViewportSize({ width: 1440, height: 1000 });
-    // 从深链接进入时，选中 ID 先于 /state 返回，订阅仍必须自动建立。
+    // 从深链接进入时，选中 ID 先于会话索引返回，订阅仍必须自动建立。
     await page.goto(base + "/#chat/" + session.id);
     await expect(
       page.getByRole("heading", { name: "环境端标题", exact: true }),
     ).toBeVisible();
     await checkLongChatTitle(page);
     await expect(
-      page.getByText("实时连接恢复中，正在定期同步", { exact: true }),
+      page.getByText("正在恢复实时连接，重新连接后将同步会话。", { exact: true }),
     ).toHaveCount(0);
     await expect(page.getByText("实时连接已建立", { exact: true })).toHaveCount(
       0,
@@ -486,9 +487,9 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
     await expect
       .poll(() => store.get("sessions", session.id).runtimeOptions?.effort)
       .toBeNull();
-    // 模拟代理间歇返回 HTML，保留会话与草稿，下一次正常轮询必须清除提示。
+    // 模拟代理间歇返回 HTML，保留会话与草稿，恢复对账后清除提示。
     for (const endpoint of [
-      "/api/state",
+      "/api/state/query",
       `/api/sessions/${session.id}/history`,
     ]) {
       await page.getByLabel("发送给环境 Agent").fill("网络恢复后继续编辑");
@@ -499,6 +500,7 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
           body: "<html><h1>Bad Gateway</h1></html>",
         }),
       );
+      await page.evaluate(() => window.dispatchEvent(new Event("pageshow")));
       await expect(
         page.getByText(`服务暂时不可用，请稍后重试 (HTTP 502, ${endpoint})`),
       ).toBeVisible({ timeout: 12000 });
@@ -509,6 +511,7 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
         page.getByRole("heading", { name: "环境端标题", exact: true }),
       ).toBeVisible();
       await page.unroute(`**${endpoint}`);
+      await page.evaluate(() => window.dispatchEvent(new Event("pageshow")));
       await expect(
         page.getByText(`服务暂时不可用，请稍后重试 (HTTP 502, ${endpoint})`),
       ).toHaveCount(0, { timeout: 12000 });
@@ -561,11 +564,10 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
       "/workspace",
     );
     expect(service.execution(executionId).state).toBe("running");
-    // 历史接口持续返回空快照，跨过一次轮询仍不能擦除增量或自己的消息。
+    // 跨过旧版的五秒定时窗口，稳定输出无需回源。
     const readsBefore = historyReads;
-    await expect
-      .poll(() => historyReads, { timeout: 10000 })
-      .toBeGreaterThan(readsBefore);
+    await page.waitForTimeout(5200);
+    expect(historyReads).toBe(readsBefore);
     await expect(
       page.locator(".messages").getByText("正在检查项目", { exact: true }),
     ).toBeVisible();
@@ -656,12 +658,14 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
     // 无原生历史时必须明确显示窗口缺口，不能假装完整或空历史。
     snapshotGap = true;
     nativeHistory = null;
+    await page.evaluate(() => window.dispatchEvent(new Event("pageshow")));
     await expect(
       page.getByText("实时事件超出缓冲窗口，完整记录以环境原生历史为准。", {
         exact: true,
       }),
     ).toBeVisible({ timeout: 12000 });
     snapshotGap = false;
+    await page.evaluate(() => window.dispatchEvent(new Event("pageshow")));
     await expect(
       page.getByText("实时事件超出缓冲窗口，完整记录以环境原生历史为准。", {
         exact: true,
@@ -679,6 +683,7 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
         },
       }),
     );
+    await page.evaluate(() => window.dispatchEvent(new Event("pageshow")));
     await expect(
       page.getByText("环境存储不可用，执行已停止；请检查连接器诊断日志。", {
         exact: false,
@@ -689,6 +694,7 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
     ).toHaveCount(0);
     await expect(input).toHaveValue("断连后保留的草稿");
     await page.unroute(`**/api/sessions/${session.id}/history`);
+    await page.evaluate(() => window.dispatchEvent(new Event("pageshow")));
     await expect(
       page.getByText("环境存储不可用，执行已停止；请检查连接器诊断日志。", {
         exact: false,
@@ -1017,9 +1023,35 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
     await expect(
       page.getByRole("heading", { name: "选择会话，开始协作" }),
     ).toBeVisible();
-    store.remove("agents", initialAgent.id);
-    store.remove("agents", configAgent.id);
-    await page.reload();
+    expect(allEvents.length).toBeGreaterThan(10);
+    expect(errors).toEqual([]);
+  } finally {
+    await page.goto("about:blank");
+    await app.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** 创建流程使用独立服务和数据库，手机与桌面共享同一组真实接口。 */
+test("新建会话的职责、目录、权限与移动端选择", async ({ page, context }) => {
+  const dir = mkdtempSync(join(tmpdir(), "relay-create-browser-"));
+  const config = { dataDir: dir, publicUrl: "http://127.0.0.1", secureCookie: false, webDir: resolve("dist/web") };
+  const { app, store, service } = await createApp(config);
+  const env = store.put("environments", { name: "隔离环境", approved: true, roots: [], tools: { claude: { runsAsRoot: true } } });
+  const project = service.save("projects", { name: "测试项目", directories: [{ environmentId: env.id, rootId: "root", relativePath: "." }] });
+  const peer = { call: async () => ({ status: "idle", events: [], interactions: [] }), close() {} };
+  service.peers.set(env.id, peer as any);
+  const presetAvatar = "/assets/agent-avatars/qa.png";
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  const cookie = randomUUID();
+  store.put("users", { username: "fixture" }, "owner");
+  store.db.prepare("INSERT INTO auth_sessions VALUES(?,?,?)").run(digest(cookie), "owner", Date.now() + 600000);
+  const base = await app.listen({ port: 0, host: "127.0.0.1" });
+  config.publicUrl = base;
+  try {
+    await context.addCookies([{ name: "relay_session", value: cookie, url: base }]);
+    await page.goto(base + "/#chat");
     const newSession = page.getByRole("button", {
       name: "新建会话：测试项目",
       exact: true,
@@ -1281,7 +1313,6 @@ test("环境会话即时回显、流式工具、刷新恢复、批量归档删�
     } finally {
       await mobile.close();
     }
-    expect(allEvents.length).toBeGreaterThan(10);
     expect(errors).toEqual([]);
   } finally {
     await page.goto("about:blank");
@@ -1819,6 +1850,106 @@ test("环境会话置顶与取消置顶", async ({ browser }) => {
     await expect(page).toHaveURL(config.publicUrl + "/#chat/" + board.id);
   } finally {
     await context.close();
+    await app.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** 在真实页面和 SSE 上延后原生落盘，区分环境重连与浏览器连接重建。 */
+test("终态晚落盘、同流环境恢复和浏览器重连只在必要时对账", async ({ page, context }) => {
+  const dir = mkdtempSync(join(tmpdir(), "relay-history-recovery-"));
+  const config = { dataDir: dir, publicUrl: "http://127.0.0.1", secureCookie: false, webDir: resolve("dist/web") };
+  const { app, store, service } = await createApp(config);
+  const env = store.put("environments", { name: "恢复环境", roots: [], approved: true });
+  const project = service.save("projects", { name: "恢复项目", directories: [{ environmentId: env.id, rootId: "root", relativePath: "." }] });
+  const agent = service.save("agents", { name: "恢复职责" });
+  const run = randomUUID();
+  const session = store.put("sessions", { title: "恢复测试", agentId: agent.id, runtime: "codex", projectId: project.id,
+    environmentId: env.id, rootId: "root", status: "running", executionId: run });
+  const item = { id: "reply", type: "agentMessage", text: "最终落盘内容" };
+  const end = { id: "turn", status: "completed", items: [item] };
+  const events = [{ executionId: run, sequence: 1, type: "turn/completed", data: { turn: end } }];
+  let reads = 0;
+  let status = "running";
+  let written = false;
+  let extra = "";
+  let connections = 0;
+  let socket: import("node:net").Socket | undefined;
+  app.server.prependListener("request", req => {
+    if (req.url?.endsWith("/events")) { socket = req.socket; connections++; }
+  });
+  const peer = { call: async () => {
+    reads++;
+    const items = written ? [item, ...(extra ? [{ ...item, id: "extra", text: extra }] : [])] : [];
+    return { status, events: status === "completed" ? events : [], interactions: [],
+      nativeHistory: { thread: { turns: [{ ...end, items }] } } };
+  }, close() {} };
+  service.peers.set(env.id, peer as any);
+  try {
+    config.publicUrl = await app.listen({ port: 0, host: "127.0.0.1" });
+    const token = randomUUID();
+    store.put("users", { username: "fixture" }, "owner");
+    store.db.prepare("INSERT INTO auth_sessions VALUES(?,?,?)").run(digest(token), "owner", Date.now() + 600000);
+    await context.addCookies([{ name: "relay_session", value: token, url: config.publicUrl }]);
+    await page.goto(config.publicUrl + "/#chat/" + session.id);
+    await expect.poll(() => reads).toBe(1);
+    const input = page.getByLabel("发送给环境 Agent");
+    await input.fill("保留草稿");
+    status = "completed";
+    store.put("sessions", { status }, session.id);
+    for (const type of ["execution-state", "update"])
+      service.sessionEvents.emit(session.id, { type, status, executionId: run });
+    await expect(page.getByText("尚未确认环境中的完整会话历史。", { exact: false })).toBeVisible();
+    expect(reads).toBe(2);
+    written = true;
+    await expect(page.locator(".messages").getByText(item.text, { exact: true })).toHaveCount(1);
+    await expect(page.getByText("尚未确认环境中的完整会话历史。", { exact: false })).toHaveCount(0);
+    const settled = reads;
+    await page.waitForTimeout(5200);
+    expect(reads).toBe(settled);
+    extra = "环境重连补齐内容";
+    service.sessionEvents.emit("environment:" + env.id, { type: "environment-ready" });
+    await expect(page.locator(".messages").getByText(extra, { exact: true })).toHaveCount(1);
+    expect(connections).toBe(1);
+    extra = "浏览器重连补齐内容";
+    socket!.destroy();
+    await expect(page.locator(".messages").getByText(extra, { exact: true })).toHaveCount(1, { timeout: 10000 });
+    expect(connections).toBe(2);
+    await expect(input).toHaveValue("保留草稿");
+    // 冻结旧会话已取得的响应，切到新会话后再放行，验证归属与初始化并发。
+    const second = store.put("sessions", { title: "另一会话", agentId: agent.id, runtime: "codex",
+      projectId: project.id, environmentId: env.id, rootId: "root", status: "idle" });
+    let releaseOld!: () => void;
+    const gate = new Promise<void>(resolve => { releaseOld = resolve; });
+    const oldReady = new Promise<void>(resolve => {
+      void page.route("**/sessions/" + session.id + "/history", async route => {
+        const response = await route.fetch();
+        resolve();
+        await gate;
+        await route.fulfill({ response });
+      }, { times: 1 });
+    });
+    await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await oldReady;
+    let releaseNew!: () => void;
+    const newGate = new Promise<void>(resolve => { releaseNew = resolve; });
+    await page.route("**/sessions/" + second.id + "/history", async route => {
+      await newGate;
+      await route.fulfill({ json: { title: "另一会话", status: "idle", events: [], interactions: [],
+        nativeHistory: null, historyExecutionId: null, executionId: null } });
+    }, { times: 1 });
+    await page.goto(config.publicUrl + "/#chat/" + second.id);
+    await expect.poll(() => service.sessionEvents.listenerCount(second.id)).toBe(1);
+    const delta = { executionId: "second", sequence: 1, type: "item/agentMessage/delta", data: { itemId: "new", delta: "初始化期间收到" } };
+    for (let i = 0; i < 2; i++) service.sessionEvents.emit(second.id, { type: "update", event: delta });
+    releaseNew();
+    releaseOld();
+    await expect(page.locator(".session-history-loading")).toHaveCount(0);
+    await expect(page.locator(".messages").getByText("初始化期间收到", { exact: true })).toHaveCount(1);
+    await expect(page.locator(".messages").getByText(extra, { exact: true })).toHaveCount(0);
+  } finally {
+    await page.goto("about:blank");
+    service.peers.clear();
     await app.close();
     rmSync(dir, { recursive: true, force: true });
   }

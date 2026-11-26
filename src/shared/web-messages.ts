@@ -1105,6 +1105,10 @@ export const webMessages = {
     "zh-CN": "验证目录",
     en: "Validate directory",
   },
+  "web.sessionHistoryUnconfirmed": {
+    "zh-CN": "尚未确认环境中的完整会话历史。",
+    en: "The full session history from the environment is still unconfirmed.",
+  },
   "web.loading": {
     "zh-CN": "正在读取…",
     en: "Loading…",
@@ -2975,8 +2979,8 @@ export const webMessages = {
     en: "This session is archived. Unarchive to send messages.",
   },
   "web.restoringLiveConnectionSyncingPeriodically": {
-    "zh-CN": "实时连接恢复中，正在定期同步",
-    en: "Restoring live connection; syncing periodically",
+    "zh-CN": "正在恢复实时连接，重新连接后将同步会话。",
+    en: "Reconnecting. Session history will sync when the connection returns.",
   },
   "web.theCurrentAgentNoLongerAppliesToThisSession": {
     "zh-CN": "当前智能体已不适用于此会话，请重新选择智能体或默认 Agent。",

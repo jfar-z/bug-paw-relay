@@ -71,8 +71,7 @@ export async function advanceItem(
     const previous = unresolved.get(item.id);
     let payload = previous?.payload;
     if (payload) {
-      const latest = await api("/state", undefined, undefined, 15000);
-      const current = latest.items.find((i: any) => i.id === item.id);
+      const { item: current } = await api("/boards/" + item.boardId + "/items/" + item.id, undefined, undefined, 15000);
       if (!current || current.version !== payload.expectedVersion) {
         unresolved.delete(item.id);
         throw new FeedbackError(feedback("board.drag.changed"));
@@ -102,8 +101,7 @@ export async function advanceItem(
       else {
         let changed = false;
         try {
-          const latest = await api("/state", undefined, undefined, 15000);
-          const current = latest.items.find((i: any) => i.id === item.id);
+          const { item: current } = await api("/boards/" + item.boardId + "/items/" + item.id, undefined, undefined, 15000);
           if (!current || current.version !== payload.expectedVersion) {
             unresolved.delete(item.id);
             changed = true;
