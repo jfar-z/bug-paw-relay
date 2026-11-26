@@ -87,7 +87,7 @@ for (const width of [1440, 390]) {
       { name: "relay_session", value: token, url: base },
     ]);
     // 在测试代理层设置公共入口源，浏览器请求仍经真实服务端权限和 HTTPS 配置检查。
-    await page.route("**/model-config/**", async (route) => {
+    await page.route(/\/api\/(?:environments\/[^/]+\/model-config\/[^/]+|state\/query)$/, async (route) => {
       await route.fulfill({
         response: await route.fetch({
           headers: { ...route.request().headers(), origin: publicUrl },
@@ -187,6 +187,9 @@ for (const width of [1440, 390]) {
       ).toBe(width);
     } finally {
       releaseDiagnostic();
+      // 先排空代理中的状态查询，再关闭测试服务。
+      await page.unrouteAll({behavior:"wait"});
+      await page.close();
       await app.close();
       rmSync(dir, { recursive: true, force: true });
     }

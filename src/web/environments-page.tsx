@@ -1,11 +1,19 @@
 import { CommandsDialog, type CommandProject } from "./slash-commands.js";
 import { useEffect, useState } from "react";
-import { Monitor, Plus, ArrowLeft, Filter, Folder } from "lucide-react";
+import { Plus, ArrowLeft, Filter } from "lucide-react";
 import {
   claudeSdkStatus,
   claudeSdkCapability,
 } from "../shared/claude-sdk-install.js";
-import { modelConfigCapability } from "../shared/environment-model-config.js";
+import { EnvironmentTraffic } from "./environment-traffic.js";
+import {
+  metricsCapability,
+  type ResourceSummary,
+} from "../shared/environment-metrics.js";
+import {
+  modelResults,
+  modelConfigCapability,
+} from "../shared/environment-model-config.js";
 import { EnvironmentModelDialog } from "./environment-model-dialog.js";
 import { api } from "./api.js";
 import {
@@ -23,7 +31,9 @@ import {
   Page,
   PageHeader,
   CardGrid,
-  EntityCard,
+  ResponsiveList,
+  Utilization,
+  byteAmount,
   Badge,
   InfoBadge,
   Metadata,
@@ -190,13 +200,19 @@ function RuntimeSettings({
   projects: CommandProject[];
   sdkUnavailable?: string;
   modelConfigUnavailable?: string;
-  tools?: Record<string, { version?: string; available: boolean }>;
+  tools?: Record<
+    string,
+    { version?: string; available: boolean; mode?: string }
+  >;
   onSaved: () => Promise<void>;
 }) {
   useLocale();
   const [settings, setSettings] = useState<{
     enabledRuntimes: string[];
-    tools: Record<string, { version?: string; available: boolean }>;
+    tools: Record<
+      string,
+      { version?: string; available: boolean; mode?: string }
+    >;
   } | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState<UiFeedback>("");
@@ -232,6 +248,46 @@ function RuntimeSettings({
     }
   }
 
+  const [summaryRevision, setSummaryRevision] = useState(0);
+  const [summaries, setSummaries] = useState<Record<string, string>>({});
+  useEffect(() => {
+    let active = true;
+    setSummaries({});
+    if (settings && !modelConfigUnavailable) {
+      for (const provider of ["codex", "claude"]) {
+        api(`/environments/${environmentId}/model-config/read`, { provider })
+          .then((value) => {
+            const config = modelResults.read.parse(value);
+            let label = "monitor.pending";
+            if (
+              provider === "claude" &&
+              settings?.tools.claude?.mode === "environment"
+            )
+              label = "monitor.environment";
+            else if (provider === "codex" && !config.customEndpoint)
+              label = "monitor.local";
+            else if (config.customEndpoint && config.hasKey && config.model)
+              label = "monitor.configured";
+            else if (provider === "claude" && !settings?.tools.claude?.mode)
+              label = "monitor.unknown";
+            if (active)
+              setSummaries((previous) => ({ ...previous, [provider]: label }));
+          })
+          .catch(() => {
+            // 某一工具读取失败时保留未知，另一项仍可独立显示。
+            if (active)
+              setSummaries((previous) => ({
+                ...previous,
+                [provider]: "monitor.unknown",
+              }));
+          });
+      }
+    }
+    return () => {
+      active = false;
+    };
+  }, [environmentId, modelConfigUnavailable, summaryRevision, settings]);
+
   return (
     <Panel title={tr("web.codingTools")}>
       <p>{tr("web.cliPolicyHelp")}</p>
@@ -262,59 +318,102 @@ function RuntimeSettings({
           <p role="status">{tr("web.cliSettingsLoading")}</p>
         ))}
       {settings && (
-        <CardGrid>
-          {runtimes.map(({ value, label }) => {
+        <ResponsiveList
+          label={tr("web.codingTools")}
+          columns={[
+            tr("monitor.tool"),
+            tr("monitor.version"),
+            tr("monitor.enabled"),
+            tr("monitor.availability"),
+            tr("monitor.config"),
+            tr("monitor.actions"),
+          ]}
+          rows={runtimes.map(({ value, label }) => {
             const enabled = settings.enabledRuntimes.includes(value);
             const tool = tools?.[value] ?? settings.tools[value];
             const provider =
               value === "codex" || value === "claude" ? value : undefined;
-            return (
-              <Panel key={value} title={label}>
-                <Actions>
-                  <Badge tone={enabled ? "good" : "neutral"}>
-                    {tr(enabled ? "web.cliEnabled" : "web.cliDisabled")}
-                  </Badge>
-                  <Button
-                    aria-disabled={saving}
-                    onClick={() => {
-                      if (!saving) void update(value, !enabled);
-                    }}
-                  >
-                    {tr(enabled ? "web.cliDisableTool" : "web.cliEnableTool", {
-                      tool: label,
-                    })}
-                  </Button>
-                  <Button onClick={() => setCommandRuntime(value)}>{tr("web.commands.title")}</Button>
-                  {provider && (
-                    <Button onClick={() => setModelProvider(provider)}>
-                      {tr("environment.modelConfig.open", { tool: label })}
+            return {
+              id: value,
+              cells: [
+                <Button
+                  variant="ghost"
+                  onClick={() => setModelProvider(provider)}
+                >
+                  {label}
+                </Button>,
+                tool?.version || tr("web.versionNotReported"),
+                <Badge tone={enabled ? "good" : "neutral"}>
+                  {tr(enabled ? "web.cliEnabled" : "web.cliDisabled")}
+                </Badge>,
+                tool ? (
+                  tool.available ? (
+                    tr("web.available")
+                  ) : (
+                    <>
+                      {tr("monitor.unavailable")} · {toolStatus(tool)}
+                    </>
+                  )
+                ) : (
+                  tr("monitor.unknown")
+                ),
+                tr(
+                  (!modelConfigUnavailable && summaries[value]) ||
+                    "monitor.unknown",
+                ),
+                <>
+                  <Actions>
+                    <Button
+                      aria-disabled={saving}
+                      onClick={() => {
+                        if (!saving) void update(value, !enabled);
+                      }}
+                    >
+                      {tr(
+                        enabled ? "web.cliDisableTool" : "web.cliEnableTool",
+                        {
+                          tool: label,
+                        },
+                      )}
                     </Button>
+                    <Button onClick={() => setCommandRuntime(value)}>
+                      {tr("web.commands.title")}
+                    </Button>
+                    {provider && (
+                      <Button onClick={() => setModelProvider(provider)}>
+                        {tr("environment.modelConfig.open", { tool: label })}
+                      </Button>
+                    )}
+                  </Actions>
+                  {value === "claude" && enabled && (
+                    <ClaudeSdkInstall
+                      environmentId={environmentId}
+                      name={environmentName}
+                      unavailable={sdkUnavailable}
+                      onChecked={() => {
+                        setAttempt((value) => value + 1);
+                        void onSaved().catch((failure) =>
+                          setError(caughtFeedback(failure)),
+                        );
+                      }}
+                    />
                   )}
-                </Actions>
-                <p>
-                  {tool?.version || tr("web.versionNotReported")} ·{" "}
-                  {toolStatus(tool)}
-                </p>
-                {value === "claude" && enabled && (
-                  <ClaudeSdkInstall
-                    environmentId={environmentId}
-                    name={environmentName}
-                    unavailable={sdkUnavailable}
-                    onChecked={() => {
-                      setAttempt((value) => value + 1);
-                      void onSaved().catch((failure) =>
-                        setError(caughtFeedback(failure)),
-                      );
-                    }}
-                  />
-                )}
-              </Panel>
-            );
+                </>,
+              ],
+            };
           })}
-        </CardGrid>
+        />
       )}
       {saving && <p role="status">{tr("web.cliSettingsSaving")}</p>}
-      {commandRuntime && <CommandsDialog environmentId={environmentId} environmentName={environmentName} runtime={commandRuntime} projects={projects} onClose={() => setCommandRuntime("")} />}
+      {commandRuntime && (
+        <CommandsDialog
+          environmentId={environmentId}
+          environmentName={environmentName}
+          runtime={commandRuntime}
+          projects={projects}
+          onClose={() => setCommandRuntime("")}
+        />
+      )}
       {modelProvider && (
         <EnvironmentModelDialog
           key={modelProvider}
@@ -323,7 +422,10 @@ function RuntimeSettings({
           provider={modelProvider}
           unavailable={modelConfigUnavailable}
           onClose={() => setModelProvider(undefined)}
-          onSaved={onSaved}
+          onSaved={async () => {
+            setSummaryRevision((n) => n + 1);
+            await onSaved();
+          }}
         />
       )}
     </Panel>
@@ -343,6 +445,11 @@ export function EnvironmentsPage({
   useLocale();
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("");
+  const [expanded, setExpanded] = useState<Record<string, boolean>>(() =>
+    history.state?.blockerEnvironment
+      ? { [history.state.blockerEnvironment]: true }
+      : {},
+  );
   const [otherTab, setTab] = useState("overview");
   const tab = openTools ? "tools" : otherTab;
   const selectTab = (value: string) => {
@@ -393,6 +500,10 @@ export function EnvironmentsPage({
             >
               {tr("web.cliManageTools")}
             </Button>
+          </InfoBadge>
+        ) : tool?.available === false ? (
+          <InfoBadge key={name} label={name + " · " + tr("monitor.unavailable")}>
+            {toolStatus(tool)}
           </InfoBadge>
         ) : (
           <Badge key={name}>
@@ -526,6 +637,13 @@ export function EnvironmentsPage({
             </Panel>
           </CardGrid>
         )}
+        {tab === "overview" && e.approved && !e.revoked && (
+          <EnvironmentTraffic
+            key={e.id}
+            id={e.id}
+            supported={!!e.capabilities?.includes(metricsCapability)}
+          />
+        )}
         {tab === "directories" && (
           <Panel title={tr("web.workspaceRoots")}>
             <p>{tr("web.savedAndReportedByTheClientTheServerDoes")}</p>
@@ -621,42 +739,112 @@ export function EnvironmentsPage({
         </>
       }
     >
-      <CardGrid>
-        {visible.map((e: any) => (
-          <EntityCard
-            key={e.id}
-            title={e.name}
-            subtitle={e.platform || tr("web.waitingForFirstConnection")}
-            icon={<Monitor aria-hidden="true" />}
-            status={statusBadge(e)}
-            actions={
-              <>
-                <Button
-                  onClick={() => {
-                    location.hash = "environments/" + e.id;
-                    setTab("overview");
-                  }}
-                >
-                  {tr("web.viewDetails")}
-                </Button>
-                {approve(e)}
-              </>
-            }
-          >
-            {tools(e)}
-            <ConnectorVersion key={e.id} environment={e} compact />
-            <Metadata
-              items={[
-                {
-                  label: tr("web.workspaceRoots"),
-                  value: e.roots?.length || 0,
-                },
-                { label: tr("web.lastConnected"), value: seen(e) },
-              ]}
-            />
-          </EntityCard>
-        ))}
-      </CardGrid>
+      {!!visible.length && (
+        <ResponsiveList
+          label={tr("web.developmentEnvironment")}
+          columns={[
+            tr("web.developmentEnvironment"),
+            tr("monitor.system"),
+            tr("web.connectionStatus"),
+            tr("monitor.connector"),
+            "CPU",
+            tr("monitor.memory"),
+            tr("monitor.disk"),
+          ]}
+          rows={visible.map((e: any) => {
+            const supported = e.capabilities?.includes(metricsCapability);
+            const resources: ResourceSummary | undefined = supported
+              ? e.resources
+              : undefined;
+            const unknown = tr("monitor.unknown");
+            const versionStatus = e.connectorUpdate?.status;
+            return {
+              id: e.id,
+              detail: expanded[e.id] && (
+                <ConnectorVersion environment={e} compact />
+              ),
+              cells: [
+                <>
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      location.hash = "environments/" + e.id;
+                      setTab("overview");
+                    }}
+                  >
+                    <span>{e.name}</span>
+                  </Button>
+                  {tools(e)}
+                </>,
+                e.platform || unknown,
+                <>
+                  {statusBadge(e)}
+                  {approve(e)}
+                </>,
+                <>
+                  {e.connectorVersion || unknown}
+                  <br />
+                  {e.connectorVersion && (
+                    <div>
+                      {tr(
+                        versionStatus === "current"
+                          ? "monitor.current"
+                          : versionStatus === "different"
+                            ? "monitor.different"
+                            : "monitor.unknown",
+                      )}
+                    </div>
+                  )}
+                  <Button
+                    size="small"
+                    aria-expanded={!!expanded[e.id]}
+                    onClick={() =>
+                      setExpanded((previous) => ({
+                        ...previous,
+                        [e.id]: !previous[e.id],
+                      }))
+                    }
+                  >
+                    {tr("monitor.versionDetails")}
+                  </Button>
+                </>,
+                <Utilization label="CPU" value={resources?.cpuPercent} />,
+                <Utilization
+                  label={tr("monitor.memory")}
+                  value={resources?.memoryPercent}
+                />,
+                <>
+                  {resources?.disk
+                    ? byteAmount(resources.disk.availableBytes)
+                    : unknown}
+                  {resources && (
+                    <div>
+                      <small>
+                        {tr("monitor.sample")} ·{" "}
+                        {new Date(resources.sampledAt).toLocaleString(
+                          currentLocale(),
+                        )}
+                      </small>
+                      {resources.disk && (
+                        <div>
+                          <small>
+                            {tr("monitor.volume")} · {resources.disk.volume}
+                          </small>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {!supported && (
+                    <div>
+                      <small>{tr("monitor.legacy")}</small>
+                    </div>
+                  )}
+                </>,
+              ],
+            };
+          })}
+        />
+      )}
       {!visible.length && (
         <EmptyState
           title={

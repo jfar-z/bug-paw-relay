@@ -22,7 +22,7 @@ test("正式组件、环境页与内容契约", async ({ page }) => {
   const name = "ExampleEnvironmentABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789".repeat(
     3,
   );
-  store.put("environments", {
+  const environment = store.put("environments", {
     name,
     approved: true,
     roots: [
@@ -47,17 +47,53 @@ test("正式组件、环境页与内容契约", async ({ page }) => {
     await page.getByRole("button", { name: "登录", exact: true }).click();
     await expect(page.locator(".shell")).toBeVisible();
     await page.goto(base + "/#environments");
-    await expect(page.locator(".ui-entity-card")).toHaveCount(1);
+    await expect(page.locator(".ui-monitor-list tbody tr")).toHaveCount(1);
     await page.getByRole("textbox", { name: "搜索环境" }).fill("missing");
     await expect(page.getByRole("button", { name: "清除筛选" })).toBeVisible();
     await page.getByRole("button", { name: "清除筛选" }).click();
-    await page.getByRole("button", { name: "查看详情", exact: true }).click();
+    await page.getByRole("button", { name, exact: true }).click();
     await expect(page.locator(".ui-page-header h1")).toHaveText(name);
+    // 通过真实历史接口展示离线旧节点的历史，空窗和零读数分别验证。
+    await expect(page.getByText("此时段没有有效流量样本。")).toBeVisible();
+    const end = Date.now() - 2000;
+    const insert = store.db.prepare("INSERT INTO environment_traffic VALUES (?,?,?,?,?,?)");
+    for (const minutes of [4, 3, 1]) {
+      const start = end - minutes * 60000;
+      insert.run(environment.id, start, start + 60000, 600000, 120000, 60000);
+    }
+    for (const period of ["1 小时", "5 分钟", "24 小时"]) {
+      await page.getByRole("button",{name:period,exact:true}).click();
+      await expect(page.getByText("1.8 MB",{exact:true})).toBeVisible();
+      await expect(page.getByText("360 kB",{exact:true})).toBeVisible();
+      const chart = page.getByRole("img",{name:"接收峰值 10 kB/s，发送峰值 2 kB/s"});
+      await expect(chart).toBeVisible();
+      expect((await chart.locator("path").first().getAttribute("d"))?.match(/M/g)).toHaveLength(2);
+    }
     await page.getByRole("button", { name: "工作目录", exact: true }).click();
     await page.locator(".ui-disclosure summary").click();
     await expect(page.locator(".ui-disclosure code")).toContainText(
       "LongDirectory",
     );
+    const second = store.put("environments", {name:"Second",approved:true,tools:{
+      codex:{available:false,messageKey:"web.workspaceRootsAndToolStatusSyncWhenTheConnector"}
+    }});
+    insert.run(second.id, end-60000, end, 0, 0, 60000);
+    await page.goto(base + "/#environments/" + second.id);
+    await page.reload();
+    await expect(page.getByText("0 B",{exact:true})).toHaveCount(2);
+    await page.route("**/traffic?window=5m", route => route.fulfill({status:503,json:{}}),{times:1});
+    await page.getByRole("button",{name:"5 分钟",exact:true}).click();
+    await expect(page.getByRole("alert")).toContainText("503");
+    await page.getByRole("button",{name:"重试",exact:true}).click();
+    await expect(page.getByText("0 B",{exact:true})).toHaveCount(2);
+    await page.setViewportSize({width:390,height:844});
+    await page.getByRole("button",{name:"codex · 不可用",exact:true}).click();
+    await expect(page.getByRole("note")).toBeVisible();
+    await page.keyboard.press("Escape");
+    expect(await page.locator(".content").evaluate(el=>el.scrollWidth-el.clientWidth)).toBe(0);
+    expect(await page.locator(".ui-traffic-plot").evaluate(el=>el.scrollWidth-el.clientWidth)).toBe(0);
+    await page.setViewportSize({width:1440,height:1000});
+    store.remove("environments",second.id);
     await page.goto(base + "/#ui");
     await page
       .getByRole("button", { name: "保存配置", exact: true })
@@ -109,7 +145,7 @@ test("正式组件、环境页与内容契约", async ({ page }) => {
           await page.reload();
           await page.goto(base + "/#environments");
           await page.reload();
-          await expect(page.locator(".ui-entity-card")).toHaveCount(1);
+          await expect(page.locator(".ui-monitor-list tbody tr")).toHaveCount(1);
           await expect(page.locator("html")).toHaveAttribute(
             "data-theme",
             theme,
@@ -134,6 +170,9 @@ test("正式组件、环境页与内容契约", async ({ page }) => {
             `environments-${locale}-${theme}-${width}.png`,
           );
           await page.goto(base + "/#ui");
+          const chart = page.getByRole("img",{name:/10 kB\/s.*2 kB\/s/});
+          await expect(chart).toBeVisible();
+          expect(await chart.evaluate(el => el.getBoundingClientRect().right <= innerWidth)).toBe(true);
           // 勾和底板必须形成可见对比，同时验证取消与重新选中。
           const checkbox = page.getByRole("checkbox", {
             name: locale === "en" ? "Show archived" : "显示归档",

@@ -119,6 +119,7 @@ import "./ui/application-layouts.css";
 import "./ui/brand-layouts.css";
 import "./ui/avatar.css";
 import "./ui/ui.css";
+import "./ui/monitoring.css";
 import { LightAppsPage, LightPublications } from "./light-apps.js";
 import { UiShowcase } from "./ui/showcase.js";
 const nav = [

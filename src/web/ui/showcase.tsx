@@ -1,5 +1,6 @@
 import {
   Status,
+  TrafficChart,
   ConversationHeader,
   BoardHeader,
   BoardToolbar,
@@ -527,6 +528,12 @@ export function UiShowcase() {
           </Actions>
         </Dialog>
       )}
+      <Panel title={tr("monitor.traffic")}>
+        <TrafficChart start={0} end={300000} intervals={[0,1,3,4].map(i => ({
+          start:i*60000,end:(i+1)*60000,receivedBytes:600000,sentBytes:120000,
+          receivedBytesPerSecond:10000,sentBytesPerSecond:2000
+        }))}/>
+      </Panel>
     </CollectionLayout>
   );
 }

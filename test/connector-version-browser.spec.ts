@@ -12,7 +12,7 @@ import { digest } from "../src/server/security.js";
 test.use({ hasTouch: true });
 
 /** 真实页面读取服务端判定，验证红字、平台下载、刷新消失及窄屏布局。 */
-test("环境卡片升级提醒覆盖未知、差异、一致与离线版本", async ({
+test("环境列表升级提醒覆盖未知、差异、一致与离线版本", async ({
   page,
   context,
 }) => {
@@ -89,40 +89,39 @@ test("环境卡片升级提醒覆盖未知、差异、一致与离线版本", as
       );
     }
     await page.keyboard.press("Escape");
-    const card = (name: string) =>
-      page
-        .locator(".ui-entity-card")
-        .filter({ has: page.getByRole("heading", { name, exact: true }) });
+    const card = (name: string) => page.getByRole("row").filter({has:page.getByRole("button",{name,exact:true})});
+    const versionPanel = (name:string) => card(name).locator("xpath=following-sibling::tr[1]");
+    for (const button of await page.getByRole("button",{name:"版本与更新"}).all()) await button.click();
     await expect(
-      card("旧连接器").getByText("连接器版本未知，建议升级", { exact: true }),
+      versionPanel("旧连接器").getByText("连接器版本未知，建议升级", { exact: true }),
     ).toBeVisible();
     await expect(
-      card("版本不同").getByText("连接器非最新版本，建议升级", { exact: true }),
+      versionPanel("版本不同").getByText("连接器非最新版本，建议升级", { exact: true }),
     ).toBeVisible();
     await expect(
-      card("版本不同").getByText("0.1.0-ffffffffffff", { exact: true }),
+      versionPanel("版本不同").getByText("0.1.0-ffffffffffff", { exact: true }),
     ).toBeVisible();
     await expect(page.getByText(updateZh.viewHistory, { exact: true })).toHaveCount(0);
     await expect(
-      card("其他架构").getByText("目标: 未知", { exact: true }).first(),
+      versionPanel("其他架构").getByText("目标: 未知", { exact: true }).first(),
     ).toBeVisible();
     await expect(
-      card("已是最新版").locator(".connector-version-warning"),
+      versionPanel("已是最新版").locator(".connector-version-warning"),
     ).toHaveCount(0);
     await expect(
-      card("离线环境").locator(".connector-version-warning"),
+      versionPanel("离线环境").locator(".connector-version-warning"),
     ).toHaveCount(0);
     await expect(
-      card("其他架构").getByText("当前平台暂无对应下载包"),
+      versionPanel("其他架构").getByText("当前平台暂无对应下载包"),
     ).toBeVisible();
     await expect(
-      card("其他架构").getByRole("button", { name: "下载新版连接器" }),
+      versionPanel("其他架构").getByRole("button", { name: "下载新版连接器" }),
     ).toHaveCount(0);
     await expect(
-      card("版本不同").getByRole("button", { name: "下载新版连接器" }),
+      versionPanel("版本不同").getByRole("button", { name: "下载新版连接器" }),
     ).toBeVisible();
     const downloading = page.waitForEvent("download");
-    await card("旧连接器")
+    await versionPanel("旧连接器")
       .getByRole("button", { name: "下载新版连接器" })
       .click();
     expect((await downloading).suggestedFilename()).toBe(releases[0].file);
@@ -136,7 +135,7 @@ test("环境卡片升级提醒覆盖未知、差异、一致与离线版本", as
         theme,
       );
       await expect(
-        card("旧连接器").locator(".connector-version-warning > p"),
+        versionPanel("旧连接器").locator(".connector-version-warning > p"),
       ).toHaveCSS("color", color);
     }
     await page.evaluate(
@@ -151,16 +150,16 @@ test("环境卡片升级提醒覆盖未知、差异、一致与离线版本", as
     });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.evaluate(() => (document.documentElement.lang = "en"));
-    const longValue = card("离线环境").getByText(longVersion, { exact: true });
+    const longValue = versionPanel("离线环境").getByText(longVersion, { exact: true });
     await expect(longValue).toBeVisible();
-    await expect(card("离线环境").getByText("Connector version", { exact: true })).toBeVisible();
-    expect(await card("离线环境").evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await expect(versionPanel("离线环境").getByText("Connector version", { exact: true })).toBeVisible();
+    expect(await versionPanel("离线环境").evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.evaluate(() => (document.documentElement.lang = "zh-CN"));
     // 竖屏保留收起的图标导航，环境详情仍须可访问。
     await expect(page.locator(".rail")).toBeHidden();
     await expect(page.getByRole("button", { name: "打开导航" })).toBeVisible();
-    await card("旧连接器").getByRole("button", { name: "查看详情" }).click();
+    await card("旧连接器").getByRole("button", { name: "旧连接器" }).click();
     await expect(
       page.getByRole("heading", { name: "旧连接器", exact: true }),
     ).toBeVisible();
@@ -315,6 +314,7 @@ test("下发更新确认、防重恢复、目标变化、离线及双语三主�
   });
   try {
     await page.goto(base + "/#environments");
+    await page.getByRole("button",{name:/版本与更新|Version and update/,expanded:false}).click();
     const send = page.getByRole("button", { name: "下发最新版", exact: true });
     const comparisons = page.locator(".connector-version-comparison > div");
     await expect(comparisons).toHaveText([
@@ -364,6 +364,7 @@ test("下发更新确认、防重恢复、目标变化、离线及双语三主�
       Object.assign(target, patch);
       release();
       await page.reload();
+    await page.getByRole("button",{name:/版本与更新|Version and update/,expanded:false}).click();
       await expect(page.getByText(reason, { exact: false })).toBeVisible();
       await expect(
         page.getByText("有目标发行包，但不能远程更新", { exact: true }),
@@ -394,6 +395,7 @@ test("下发更新确认、防重恢复、目标变化、离线及双语三主�
       env.id,
     );
     await page.reload();
+    await page.getByRole("button",{name:/版本与更新|Version and update/,expanded:false}).click();
     await expect(
       comparisons.filter({ hasText: "数据格式" }).getByText("当前: 未知", { exact: true }),
     ).toBeVisible();
@@ -411,6 +413,7 @@ test("下发更新确认、防重恢复、目标变化、离线及双语三主�
       env.id,
     );
     await page.reload();
+    await page.getByRole("button",{name:/版本与更新|Version and update/,expanded:false}).click();
     await send.click();
     const dialog = page.getByRole("dialog");
     await expect(dialog.getByText(updateZh.claudeOnDemand)).toBeVisible();
@@ -457,6 +460,7 @@ test("下发更新确认、防重恢复、目标变化、离线及双语三主�
     expect(operation).toBeTruthy();
     expect(posts).toBe(1);
     await page.reload();
+    await page.getByRole("button",{name:/版本与更新|Version and update/,expanded:false}).click();
     await expect(
       page.getByRole("button", { name: "重发原请求" }),
     ).toBeVisible();
@@ -504,6 +508,7 @@ test("下发更新确认、防重恢复、目标变化、离线及双语三主�
       operation.id,
     );
     await page.reload();
+    await page.getByRole("button",{name:/版本与更新|Version and update/,expanded:false}).click();
     await expect(
       page.getByText("旧版本已恢复健康，等待认证重连对账", { exact: true }),
     ).toBeVisible();
@@ -573,6 +578,7 @@ test("下发更新确认、防重恢复、目标变化、离线及双语三主�
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
     await page.reload();
+    await page.getByRole("button",{name:/版本与更新|Version and update/,expanded:false}).click();
     await expect(page.getByText("已回滚", { exact: true })).toBeVisible();
     expect(posts).toBe(2);
     store.put(
@@ -607,6 +613,7 @@ test("下发更新确认、防重恢复、目标变化、离线及双语三主�
     await expect(record).toBeHidden();
     await expect(history).toBeFocused();
     await page.reload();
+    await page.getByRole("button",{name:/版本与更新|Version and update/,expanded:false}).click();
     await expect(history).toBeVisible();
     await expect(record).toBeHidden();
     await page.setViewportSize({ width: 320, height: 844 });
@@ -670,6 +677,7 @@ test("更新受阻时查看会话、定向终止并手动重试", async ({ page,
   try {
     await page.setViewportSize({ width: 320, height: 844 });
     await page.goto(base + "/#environments");
+    await page.getByRole("button",{name:/版本与更新|Version and update/,expanded:false}).click();
     const send = page.getByRole("button", { name: "下发最新版", exact: true });
     const dialog = page.getByRole("dialog").first();
     const button = (name: string) => dialog.getByRole("button", { name, exact: true });
@@ -736,11 +744,13 @@ test("更新受阻时查看会话、定向终止并手动重试", async ({ page,
     await button("确认下发").click();
     await expect(dialog.getByText("迟到的占用")).toBeVisible({ timeout: 10000 });
     await page.reload();
+    await page.getByRole("button",{name:/版本与更新|Version and update/,expanded:false}).click();
     await page.getByRole("button", { name: "更新占用详情" }).click();
     await expect(dialog.getByText("迟到的占用")).toBeVisible();
     expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
     service.saveLanguage({ preference: "en" });
     await page.reload();
+    await page.getByRole("button",{name:/版本与更新|Version and update/,expanded:false}).click();
     await page.getByRole("button", { name: "Update blockers" }).click();
     await expect(dialog.getByRole("heading", { name: "Sessions are blocking this update" })).toBeVisible();
     await expect(button("Force stop")).toBeVisible();

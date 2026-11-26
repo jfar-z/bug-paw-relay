@@ -70,3 +70,7 @@ Long titles/subtitles truncate within their text column and cannot push status/a
 ## Board flow configuration
 
 Use `FlowLayout` with the overview, stage title and detail, and whole-flow actions. Desktop keeps the overview and detail independently scrollable. At 760px and below, the same detail and actions fill the viewport. Use the `flowStage` surface for selectable cards and `FlowDiagram` to place a desktop route overlay alongside those cards. The board owns its stage data, directional routes and draft. The gallery's Flow configuration section demonstrates the shared layout with the long-content toggle.
+
+## Environment monitoring
+
+Use `ResponsiveList` for collections that share column labels across records. Each row has a stable ID, cells in column order and optional full-width details. Mobile rows show labels alongside their values. `Utilization` displays a percentage or an unknown reading. `TrafficChart` takes the window start/end in Unix milliseconds and interval averages in B/s. Adjacent samples connect and missing time remains blank. The legend uses a solid receive line and dashed send line. `byteAmount` uses decimal units. The gallery includes a sample with a gap.

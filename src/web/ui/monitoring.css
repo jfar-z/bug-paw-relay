@@ -1,0 +1,156 @@
+.ui-monitor-list {
+  width: 100%;
+  table-layout: fixed;
+  border-spacing: 0;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow-wrap: anywhere;
+}
+.ui-monitor-list th,
+.ui-monitor-list td {
+  padding: 12px 10px;
+  text-align: start;
+  vertical-align: top;
+}
+.ui-monitor-list th {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.ui-monitor-list td {
+  border-top: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+.ui-monitor-list td > div {
+  min-width: 0;
+}
+.ui-monitor-list .ui-button {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.ui-monitor-list td:first-child .ui-button-ghost {
+  justify-content: start;
+  text-align: start;
+  padding-inline: 0;
+  font-weight: 600;
+  color: var(--accent-strong);
+}
+.ui-monitor-list td:first-child .ui-button-ghost > span {
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.ui-mobile-field {
+  display: none;
+}
+.ui-traffic {
+  margin: 16px 0 0;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.ui-traffic-legend,
+.ui-traffic-times {
+  display: flex;
+  gap: 16px;
+  font-size: 13px;
+}
+.ui-traffic-legend {
+  margin: 8px 0;
+}
+.ui-traffic-legend span::before {
+  content: "";
+  display: inline-block;
+  width: 20px;
+  border-top: 3px solid var(--ok);
+  vertical-align: middle;
+  margin-inline-end: 6px;
+}
+.ui-traffic-legend span + span::before {
+  border-color: var(--accent-strong);
+  border-top-style: dashed;
+}
+.ui-traffic-plot {
+  display: flex;
+  gap: 8px;
+}
+.ui-traffic-scale {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  font-size: 12px;
+}
+.ui-traffic svg {
+  height: 140px;
+  flex: 1 1 0%;
+  width: 0;
+  min-width: 0;
+}
+.ui-traffic line {
+  stroke: var(--border);
+  vector-effect: non-scaling-stroke;
+}
+.ui-traffic path {
+  fill: none;
+  stroke: var(--ok);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+.ui-traffic path:last-child {
+  stroke: var(--accent-strong);
+  stroke-dasharray: 5 4;
+}
+.ui-traffic-times {
+  justify-content: space-between;
+}
+@media (max-width: 900px) {
+  .ui-monitor-list,
+  .ui-monitor-list tbody {
+    display: block;
+  }
+  .ui-monitor-list thead {
+    position: absolute;
+    clip-path: inset(100%);
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+  }
+  .ui-monitor-list tr {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 16px;
+    padding: 14px;
+  }
+  .ui-monitor-list tbody tr + tr {
+    border-top: 1px solid var(--border);
+  }
+  .ui-monitor-list td {
+    display: block;
+    padding: 0;
+    border: 0;
+  }
+  .ui-monitor-list td:first-child,
+  .ui-monitor-list td:last-child {
+    grid-column: 1/-1;
+  }
+  .ui-mobile-field {
+    display: block;
+    color: var(--text-secondary);
+    font-size: 12px;
+    margin-bottom: 3px;
+  }
+}
+
+.ui-utilization meter {
+  display: block;
+  width: min(100%, 8rem);
+  height: 0.65rem;
+  accent-color: var(--ok);
+}
+.ui-utilization meter::-webkit-meter-optimum-value {
+  background: var(--ok);
+}

@@ -182,23 +182,17 @@ test("环境编码工具启停按环境隔离，旧表单由服务端拒绝", as
       name: "禁用 Codex",
       exact: true,
     });
-    // 在实际工具页验证双列顶部对齐，切为单列后只保留网格行距。
-    const grid = page.locator(".ui-card-grid").filter({ has: disableCodex });
-    const panels = grid.locator(":scope > .ui-panel");
-    await expect(panels).toHaveCount(2);
-    const bounds = () => panels.evaluateAll((elements) =>
-      elements.map((element) => element.getBoundingClientRect().toJSON()),
-    );
-    const [desktopCodex, desktopClaude] = await bounds();
-    expect(desktopClaude.left).toBeGreaterThan(desktopCodex.right);
-    expect(desktopClaude.top).toBe(desktopCodex.top);
-    await page.setViewportSize({ width: 390, height: 844 });
-    const [mobileCodex, mobileClaude] = await bounds();
-    expect(mobileClaude.left).toBe(mobileCodex.left);
-    expect(mobileClaude.top - mobileCodex.bottom).toBe(
-      await grid.evaluate((element) => parseFloat(getComputedStyle(element).rowGap)),
-    );
-    await page.setViewportSize({ width: 1440, height: 1000 });
+    // 两种布局都保留两行，窄屏字段可在正文宽度内完整阅读。
+    const list = page.getByRole("table", { name: "编码工具" });
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({width,height:844});
+      const rows = list.locator("tbody tr");
+      await expect(rows).toHaveCount(2);
+      const bounds = await rows.evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().toJSON()));
+      expect(bounds[1].top).toBeGreaterThanOrEqual(bounds[0].bottom);
+      expect(bounds[0].right).toBeLessThanOrEqual(width);
+    }
+    await page.setViewportSize({width:1440,height:1000});
     // 注入一次写入失败，其余读写均走真实服务。
     await page.route("**" + api, (route) =>
       route.request().method() === "PATCH"
@@ -288,10 +282,10 @@ test("环境编码工具启停按环境隔离，旧表单由服务端拒绝", as
     await expect(target).toHaveCount(0);
     await oldPage.goto(base + "/#environments");
     await expect(
-      oldPage.locator(".ui-entity-card").filter({ hasText: "Fixture A" }),
+      oldPage.locator(".ui-monitor-list tr").filter({ hasText: "Fixture A" }),
     ).not.toContainText("codex");
     await expect(
-      oldPage.locator(".ui-entity-card").filter({ hasText: "Fixture B" }),
+      oldPage.locator(".ui-monitor-list tr").filter({ hasText: "Fixture B" }),
     ).toContainText("codex");
     await expect(
       (
@@ -446,7 +440,7 @@ test("Claude SDK 标签在窄屏及桌面可打开和关闭安装说明", async 
               await badge.evaluate((el) => {
                 const rect = el.getBoundingClientRect();
                 const card = el
-                  .closest(".ui-panel, .ui-entity-card")!
+                  .closest(".ui-panel, tr")!
                   .getBoundingClientRect();
                 return (
                   rect.left >= card.left &&
