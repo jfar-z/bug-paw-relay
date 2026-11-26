@@ -1,3 +1,4 @@
+import { terminalHistoryState } from "./history-sync.js";
 import { boardCapability } from "../shared/session-boards.js";
 import { systemLocale } from "../shared/system-locale.js";
 import { preference, translate, type Locale } from "../shared/i18n.js";
@@ -182,7 +183,7 @@ export class Service {
   /** 仅同步已登记会话的环境标题，禁止重建已删除索引。 */
   syncSessionTitle(sessionId: string, title: unknown) {
     if (typeof title !== "string" || !title.trim()) return;
-    const session = this.store.list("sessions").find((s) => s.id === sessionId);
+    const session = this.store.findBy("sessions", "id", sessionId)[0];
     const normalized = title.trim().slice(0, 200);
     if (session && session.title !== normalized) {
       this.store.put("sessions", { title: normalized }, sessionId);
@@ -196,13 +197,18 @@ export class Service {
   /** 原生读取可能较慢；页面先订阅增量，历史仅用于初始化及重连对账。 */
   async sessionHistory(id: string) {
     const session = this.store.get("sessions", id);
-    const history = await this.peer(session.environmentId).call(
+    const peer = this.peer(session.environmentId);
+    const history = await peer.call(
       "session.history",
       { sessionId: id },
     );
-    this.syncSessionTitle(id, history.title);
+    ensure(this.peer(session.environmentId) === peer, "OFFLINE", i18nMessage("connector.native.unavailable"), 409);
     // 读取期间执行状态可能变化，使用服务端当前索引状态，不能被旧快照回退。
     const current = this.store.get("sessions", id);
+    const sameRun = current.executionId === session.executionId;
+    const terminal = ["completed", "failed", "cancelled"].includes(current.status);
+    if (sameRun && current.title === session.title) this.syncSessionTitle(id, history.title);
+    const title = this.store.get("sessions", id).title;
     // 兼容没有事件时间的连接器，以平台执行账本提供会话时间线的时间边界。
     const executionStarts = this.store.db
       .prepare("SELECT id, created_at AS createdAt, json_extract(snapshot,'$.boardIds') AS boardIds, json_extract(snapshot,'$.agent.id') AS agentId, json_extract(snapshot,'$.agent.name') AS agentName FROM executions WHERE session_id=?")
@@ -220,6 +226,13 @@ export class Service {
       ...(history.questionRecords
         ? { questionRecords: history.questionRecords }
         : {}),
+      title,
+      executionId: current.executionId ?? null,
+      historyExecutionId: session.executionId ?? null,
+      ...(terminal ? { terminalHistory: sameRun && current.executionId && session.status === current.status &&
+        ["completed", "failed", "cancelled"].includes(history.status)
+        ? terminalHistoryState(history, current.executionId, current.runtime) : "pending" } : {}),
+      ...(!sameRun || terminal ? { interactions: [] } : {}),
       status: current.status,
     };
   }
@@ -281,26 +294,29 @@ export class Service {
       i18nMessage("errors.SCOPE.the.execution.environment.does.not.match"),
       403,
     );
-    if (!this.store.list("sessions").some((s) => s.id === execution.session_id))
+    if (!this.store.findBy("sessions", "id", execution.session_id).length)
       return;
     const stateAccepted =
       !data.status ||
       this.setState(execution.id, data.status, data.stateVersion) !== false;
-    this.syncSessionTitle(execution.session_id, data.title);
     const session = this.store.get("sessions", execution.session_id);
+    if (session.executionId === execution.id) this.syncSessionTitle(session.id, data.title);
     // 旧连接器也在服务端投影后再发给浏览器，升级前避免图片进入 SSE。
     const { status, interactions: all, ...rest } = sessionDisplay(data);
-    const interactions = all && session.executionId === execution.id && stateAccepted &&
-      !["completed", "failed", "cancelled"].includes(session.status)
-      ? this.autoApprove(execution, all)
-      : all;
+    const currentUpdate = session.executionId === execution.id && stateAccepted;
+    let interactions = all;
+    if (currentUpdate && all) {
+      interactions = ["completed", "failed", "cancelled"].includes(session.status)
+        ? [] : this.autoApprove(execution, all);
+    }
     this.sessionEvents.emit(execution.session_id, {
       ...rest,
+      ...(session.executionId !== execution.id ? { title: undefined } : {}),
       ...(data.questionRecords
         ? { questionRecords: data.questionRecords }
         : {}),
       type: "update",
-      ...(session.executionId === execution.id && stateAccepted
+      ...(currentUpdate
         ? {
             status: session.status,
             ...(interactions ? { interactions } : {}),
@@ -392,6 +408,58 @@ export class Service {
     );
     return this.runtimeSettings(this.store.put("environments", { enabledRuntimes }, id));
   }
+  /** 列表只从数据库读取卡片投影和关联的执行状态，不读取需求、执行提示词和交接正文。 */
+  private pageItems(boards: Board[], includeArchived: boolean, boardId?: string) {
+    const filter = ["kind='items'"];
+    if (!includeArchived) filter.push("NOT coalesce(json_extract(body,'$.archived'),0)");
+    if (boardId) filter.push("json_extract(body,'$.boardId')=?");
+    const where = filter.join(" AND ");
+    const params = boardId ? [boardId] : [];
+    const cardColumns = boardId ? `, json_extract(body,'$.title') AS title, json_extract(body,'$.tags') AS tags,
+      json_extract(body,'$.priority') AS priority, json_extract(body,'$.version') AS version,
+      json_extract(body,'$.archived') AS archived, json_extract(body,'$.waitingReason') AS waitingReason` : "";
+    const records = this.store.db.prepare(`
+      SELECT id, json_extract(body,'$.boardId') AS boardId,
+        json_extract(body,'$.stageId') AS stageId, json_extract(body,'$.executionId') AS executionId,
+        json_extract(body,'$.status') AS status, json_extract(body,'$.lastKnownStatus') AS lastKnownStatus ${cardColumns}
+      FROM entities WHERE ${where} ORDER BY rowid
+    `).all(...params) as unknown as Entity[];
+    const executions = this.store.db.prepare(`
+      SELECT id,session_id,environment_id,state,
+        json_object('handoffContractVersion',json_extract(snapshot,'$.handoffContractVersion')) AS snapshot
+      FROM executions WHERE id IN (
+        SELECT json_extract(body,'$.executionId') FROM entities WHERE ${where}
+      )
+    `).all(...params) as unknown as Execution[];
+    const refs = {
+      boards: new Map(boards.map(b => [b.id, b])),
+      sessions: new Map(this.store.list("sessions").map(s => [s.id, s])),
+      environments: new Map(this.store.list("environments").map(e => [e.id, e])),
+      executions: new Map(executions.map(e => [e.id, e])),
+    };
+    return records.map(record => this.itemStatus(boardId ? {
+      ...record, tags: JSON.parse(record.tags ?? "[]"), archived: !!record.archived,
+    } : record, refs));
+  }
+
+  boardSummaries() {
+    const boards = this.store.list<Board>("boards");
+    const groups = new Map(boards.map(board => [board.id, [] as ReturnType<Service["itemStatus"]>[]]));
+    for (const item of this.pageItems(boards, false)) groups.get(item.boardId)?.push(item);
+    return boards.map(board => {
+      const items = groups.get(board.id)!;
+      const { pendingCount, syncStatus } = this.boardSummary(board, items);
+      return { id: board.id, name: board.name, projectId: board.projectId, version: board.version,
+        archived: !!board.archived, stageCount: board.stages.length, itemCount: items.length, pendingCount, syncStatus };
+    });
+  }
+
+  /** 单个看板页面按需获取卡片，打开详情时再加载长正文及交接。 */
+  boardPage(boardId: string, archived: boolean) {
+    const board = this.store.get<Board>("boards", boardId);
+    return { board, items: this.pageItems([board], archived, boardId) };
+  }
+
   /** 同一快照内共用索引和工作项状态，保持库中顺序，不跨请求缓存。 */
   stateSnapshot() {
     const projects = this.list("projects");

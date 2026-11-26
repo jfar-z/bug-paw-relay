@@ -549,6 +549,42 @@ export async function createApp(options: AppOptions) {
     return { ok: true };
   });
   app.get("/api/state", async () => service.stateSnapshot());
+  // 每组独立比较，未变化的组在响应中省略；摘要也覆盖其他标签页和环境产生的变化。
+  const stateGroup = z.enum(["projects", "agents", "models", "sessions", "environments",
+    "sessionProjectIds", "boardSummaries", "board", "boardPage"]);
+  const stateQuery = z.object({
+    groups: z.array(stateGroup).min(1).max(stateGroup.options.length),
+    known: z.partialRecord(stateGroup, z.string().regex(/^[a-f0-9]{64}$/)).default({}),
+    boardId: idSchema.optional(),
+    includeArchived: z.boolean().default(false),
+  }).strict().refine(query => !query.groups.some(group => group === "boardPage" || group === "board") || !!query.boardId);
+  // 每组只记最近一次摘要。SQLite 本连接写入、外部提交或在线集合变化都会使快路径失效。
+  const recentRevisions = new Map<string, { scope: string; revision: string }>();
+  const dbRevision = store.db.prepare("SELECT total_changes() AS writes, data_version FROM pragma_data_version");
+  app.post("/api/state/query", async (req, reply) => {
+    const query = stateQuery.parse(req.body);
+    const changes: Record<string, { revision: string; value: unknown }> = {};
+    const generation = JSON.stringify([dbRevision.get(), [...service.peers.keys()]]);
+    for (const group of new Set(query.groups)) {
+      const scope = JSON.stringify([generation, query.boardId, query.includeArchived]);
+      const cached = recentRevisions.get(group);
+      // 环境更新阻塞原因还取决于内存中的传输任务，需要每次向服务层核实。
+      if (group !== "environments" && cached?.scope === scope && cached.revision === query.known[group]) continue;
+      let value: unknown;
+      switch (group) {
+        case "boardSummaries": value = service.boardSummaries(); break;
+        case "board": value = store.get("boards", query.boardId!); break;
+        case "boardPage": value = service.boardPage(query.boardId!, query.includeArchived); break;
+        case "sessionProjectIds": value = service.sessionProjectIds(store.list("projects")); break;
+        default: value = service.list(group);
+      }
+      const revision = digest(JSON.stringify(value));
+      recentRevisions.set(group, { scope, revision });
+      if (query.known[group] !== revision) changes[group] = { revision, value };
+    }
+    reply.header("Cache-Control", "no-store");
+    return { changes };
+  });
   app.put("/api/projects/order", async (req) => {
     const { projectIds } = z.object({ projectIds: z.array(idSchema) }).strict().parse(req.body);
     return service.saveSessionProjectOrder(projectIds);
@@ -1293,7 +1329,7 @@ export async function createApp(options: AppOptions) {
     "/api/sessions/:id/events",
     async (req, reply) => {
       const id = req.params.id;
-      store.get("sessions", id);
+      const environmentChannel = "environment:" + store.get("sessions", id).environmentId;
       reply.hijack();
       reply.raw.writeHead(200, {
         "Content-Type": "text/event-stream; charset=utf-8",
@@ -1312,6 +1348,7 @@ export async function createApp(options: AppOptions) {
           reply.raw.write("data: " + JSON.stringify(data) + "\n\n");
       };
       service.sessionEvents.on(id, send);
+      service.sessionEvents.on(environmentChannel, send);
       send({ type: "ready" });
       const heartbeat = setInterval(() => {
         const valid = store.db
@@ -1323,6 +1360,7 @@ export async function createApp(options: AppOptions) {
       reply.raw.on("close", () => {
         clearInterval(heartbeat);
         service.sessionEvents.off(id, send);
+        service.sessionEvents.off(environmentChannel, send);
       });
     },
   );
@@ -1905,6 +1943,7 @@ export async function createApp(options: AppOptions) {
                       !store.get("environments", e.id).revoked
                     ) {
                       service.peers.set(e.id, peer);
+                      service.sessionEvents.emit("environment:" + e.id, { type: "environment-ready" });
                       void service.syncSessionTitles(e.id, peer);
                     }
                   })
