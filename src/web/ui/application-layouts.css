@@ -234,10 +234,15 @@ dialog > header {
   z-index: 5;
   background: var(--panel);
   display: flex;
-  justify-content: space-between;
+  gap: 8px;
   align-items: center;
   border-bottom: 1px solid var(--border);
   padding: 18px 24px;
+}
+/* 标题占据剩余空间，让预览操作与关闭按钮在右侧相邻排列。 */
+dialog > header > h2 {
+  flex: 1;
+  min-width: 0;
 }
 dialog header button {
   border-radius: 7px;

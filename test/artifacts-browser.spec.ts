@@ -182,6 +182,14 @@ test("阶段产物开关持久化、离线交接预览下载、HTML 隔离与手
       await expect(
         file.getByRole("heading", { name: "交付报告" }),
       ).toBeVisible();
+      const header = page.locator("dialog[open] > header").filter({ has: enter });
+      const expandBox = (await enter.boundingBox())!;
+      const closeBox = (await header.getByRole("button", { name: "关闭", exact: true }).boundingBox())!;
+      const gap = closeBox.x - (expandBox.x + expandBox.width);
+      expect(gap).toBeGreaterThanOrEqual(0);
+      expect(gap).toBeLessThanOrEqual(12);
+      expect(Math.abs(expandBox.y - closeBox.y)).toBeLessThanOrEqual(1);
+      await header.screenshot({ path: `.vibe/artifacts/preview-header-${width}.png` });
       await enter.click();
       await checkAttachmentExamples(file.locator(".artifact-markdown"));
       await file.locator(".attachment-diagram").first().screenshot({
