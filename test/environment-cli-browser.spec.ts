@@ -286,7 +286,7 @@ test("环境编码工具启停按环境隔离，旧表单由服务端拒绝", as
     ).not.toContainText("codex");
     await expect(
       oldPage.locator(".ui-monitor-list tr").filter({ hasText: "Fixture B" }),
-    ).toContainText("codex");
+    ).not.toContainText("codex");
     await expect(
       (
         await (
@@ -387,7 +387,7 @@ test("环境编码工具启停按环境隔离，旧表单由服务端拒绝", as
   }
 });
 
-/** SDK 缺失说明覆盖列表与概览，使用真实页面读取隔离环境的探测记录。 */
+/** SDK 缺失说明仅在详情中展示，使用真实页面读取隔离环境的探测记录。 */
 test("Claude SDK 标签在窄屏及桌面可打开和关闭安装说明", async ({ browser }) => {
   const dataDir = mkdtempSync(join(tmpdir(), "relay-sdk-badge-"));
   const config = {
@@ -431,42 +431,46 @@ test("Claude SDK 标签在窄屏及桌面可打开和关闭安装说明", async 
         await page.reload();
         for (const width of [320, 1440]) {
           await page.setViewportSize({ width, height: 800 });
-          for (const route of ["environments", "environments/" + env.id]) {
-            await page.goto(base + "/#" + route);
-            await expect(badge).toBeVisible();
-            await expect(note).toBeHidden();
-            await badge.scrollIntoViewIfNeeded();
-            expect(
-              await badge.evaluate((el) => {
-                const rect = el.getBoundingClientRect();
-                const card = el
-                  .closest(".ui-panel, tr")!
-                  .getBoundingClientRect();
-                return (
-                  rect.left >= card.left &&
-                  rect.right <= card.right &&
-                  el.scrollWidth <= el.clientWidth
-                );
-              }),
-            ).toBe(true);
-            if (width === 320) await badge.tap();
-            else await badge.click();
-            await expect(note).toContainText("bugpaw-relay claude install");
-            await expect(note).toBeInViewport({ ratio: 1 });
-            expect(
-              await page
-                .locator(".content")
-                .evaluate((el) => el.scrollWidth - el.clientWidth),
-            ).toBe(0);
-            await page.mouse.click(2, 2);
-            await expect(note).toBeHidden();
-            await badge.focus();
-            await page.keyboard.press("Enter");
-            await expect(note).toBeVisible();
-            await page.keyboard.press("Escape");
-            await expect(note).toBeHidden();
-            await expect(badge).toBeFocused();
-          }
+          await page.goto(base + "/#environments");
+          const row = page.getByRole("row").filter({ hasText: env.name });
+          await expect(row).toBeVisible();
+          await expect(badge).toHaveCount(0);
+          const status = row.getByRole("cell").nth(2);
+          if (width === 320) await status.tap();
+          else await status.click();
+          await expect(badge).toBeVisible();
+          await expect(note).toBeHidden();
+          await badge.scrollIntoViewIfNeeded();
+          expect(
+            await badge.evaluate((el) => {
+              const rect = el.getBoundingClientRect();
+              const card = el
+                .closest(".ui-panel, tr")!
+                .getBoundingClientRect();
+              return (
+                rect.left >= card.left &&
+                rect.right <= card.right &&
+                el.scrollWidth <= el.clientWidth
+              );
+            }),
+          ).toBe(true);
+          if (width === 320) await badge.tap();
+          else await badge.click();
+          await expect(note).toContainText("bugpaw-relay claude install");
+          await expect(note).toBeInViewport({ ratio: 1 });
+          expect(
+            await page
+              .locator(".content")
+              .evaluate((el) => el.scrollWidth - el.clientWidth),
+          ).toBe(0);
+          await page.mouse.click(2, 2);
+          await expect(note).toBeHidden();
+          await badge.focus();
+          await page.keyboard.press("Enter");
+          await expect(note).toBeVisible();
+          await page.keyboard.press("Escape");
+          await expect(note).toBeHidden();
+          await expect(badge).toBeFocused();
         }
       }
     }

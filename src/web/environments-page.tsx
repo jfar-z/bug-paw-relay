@@ -758,24 +758,20 @@ export function EnvironmentsPage({
               : undefined;
             const unknown = tr("monitor.unknown");
             const versionStatus = e.connectorUpdate?.status;
+            const openOverview = () => {
+              location.hash = "environments/" + e.id;
+              setTab("overview");
+            };
             return {
               id: e.id,
+              onOpen: openOverview,
               detail: expanded[e.id] && (
                 <ConnectorVersion environment={e} compact />
               ),
               cells: [
-                <>
-                  <Button
-                    variant="ghost"
-                    onClick={() => {
-                      location.hash = "environments/" + e.id;
-                      setTab("overview");
-                    }}
-                  >
-                    <span>{e.name}</span>
-                  </Button>
-                  {tools(e)}
-                </>,
+                <Button variant="ghost" onClick={openOverview}>
+                  <span>{e.name}</span>
+                </Button>,
                 e.platform || unknown,
                 <>
                   {statusBadge(e)}

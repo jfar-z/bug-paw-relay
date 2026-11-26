@@ -7,6 +7,9 @@
   border-radius: var(--radius);
   overflow-wrap: anywhere;
 }
+.ui-monitor-openable {
+  cursor: pointer;
+}
 .ui-monitor-list th,
 .ui-monitor-list td {
   padding: 12px 10px;

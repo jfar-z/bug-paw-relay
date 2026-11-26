@@ -13,7 +13,7 @@ export function ResponsiveList({
 }: {
   label: string;
   columns: string[];
-  rows: { id: string; detail?: ReactNode; cells: ReactNode[] }[];
+  rows: { id: string; detail?: ReactNode; onOpen?: () => void; cells: ReactNode[] }[];
 }) {
   return (
     <table className="ui-monitor-list" aria-label={label}>
@@ -29,7 +29,15 @@ export function ResponsiveList({
       <tbody>
         {rows.map((row) => (
           <Fragment key={row.id}>
-            <tr>
+            <tr
+              className={row.onOpen ? "ui-monitor-openable" : undefined}
+              onClick={row.onOpen && ((event) => {
+                // 行内按钮和链接保留自己的操作，键盘用户可从名称按钮进入。
+                if (event.target instanceof Element && !event.target.closest("button, a, input, select, textarea, label, summary, [role=button]")) {
+                  row.onOpen?.();
+                }
+              })}
+            >
               {row.cells.map((cell, index) => (
                 <td key={columns[index]}>
                   <span className="ui-mobile-field" aria-hidden="true">

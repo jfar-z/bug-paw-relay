@@ -51,7 +51,15 @@ test("正式组件、环境页与内容契约", async ({ page }) => {
     await page.getByRole("textbox", { name: "搜索环境" }).fill("missing");
     await expect(page.getByRole("button", { name: "清除筛选" })).toBeVisible();
     await page.getByRole("button", { name: "清除筛选" }).click();
-    await page.getByRole("button", { name, exact: true }).click();
+    const row = page.getByRole("row").filter({ has: page.getByRole("button", { name, exact: true }) });
+    await expect(row).not.toContainText(/codex/i);
+    const disclosure = row.getByRole("button", { expanded: false });
+    await disclosure.click();
+    await expect(row.getByRole("button", { expanded: true })).toBeVisible();
+    await row.getByRole("cell", { name: "linux/x64" }).click();
+    await expect(page.locator(".ui-page-header h1")).toHaveText(name);
+    await page.goBack();
+    await row.getByRole("button", { name, exact: true }).press("Enter");
     await expect(page.locator(".ui-page-header h1")).toHaveText(name);
     // 通过真实历史接口展示离线旧节点的历史，空窗和零读数分别验证。
     await expect(page.getByText("此时段没有有效流量样本。")).toBeVisible();
@@ -142,7 +150,6 @@ test("正式组件、环境页与内容契约", async ({ page }) => {
           await page.setViewportSize({ width, height: 1000 });
           service.saveLanguage({ preference: locale });
           await page.evaluate((theme) => localStorage.setItem("relay-theme", theme), theme);
-          await page.reload();
           await page.goto(base + "/#environments");
           await page.reload();
           await expect(page.locator(".ui-monitor-list tbody tr")).toHaveCount(1);
