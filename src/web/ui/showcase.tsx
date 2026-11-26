@@ -1,6 +1,7 @@
 import {
   Status,
   TrafficChart,
+  Utilization,
   ConversationHeader,
   BoardHeader,
   BoardToolbar,
@@ -62,6 +63,7 @@ export function UiShowcase() {
   const [value, setValue] = useState("example-default"),
     [permission, setPermission] = useState("ask"),
     [effort, setEffort] = useState("medium");
+  const [versionExpanded, setVersionExpanded] = useState(false);
   const [flowStage, setFlowStage] = useState(false);
   const [query, setQuery] = useState("");
   const [checked, setChecked] = useState(true);
@@ -528,6 +530,13 @@ export function UiShowcase() {
           </Actions>
         </Dialog>
       )}
+      <Panel title={tr("monitor.connector")}>
+        <Button variant="attention" size="small" aria-expanded={versionExpanded} onClick={() => setVersionExpanded(!versionExpanded)}>
+          {tr("monitor.versionDetails")}
+        </Button>
+        {versionExpanded && <p>{tr("monitor.different")}</p>}
+        <Utilization label={tr("monitor.disk")} value={25} reading={tr("monitor.capacity", { used: "25 GB", total: "100 GB" })} />
+      </Panel>
       <Panel title={tr("monitor.traffic")}>
         <TrafficChart start={0} end={300000} intervals={[0,1,3,4].map(i => ({
           start:i*60000,end:(i+1)*60000,receivedBytes:600000,sentBytes:120000,

@@ -1,6 +1,14 @@
 import { CommandsDialog, type CommandProject } from "./slash-commands.js";
 import { useEffect, useState } from "react";
-import { Plus, ArrowLeft, Filter } from "lucide-react";
+import {
+  Plus,
+  ArrowLeft,
+  Filter,
+  Power,
+  Terminal,
+  Settings,
+  Package,
+} from "lucide-react";
 import {
   claudeSdkStatus,
   claudeSdkCapability,
@@ -8,6 +16,7 @@ import {
 import { EnvironmentTraffic } from "./environment-traffic.js";
 import {
   metricsCapability,
+  maxSampleGapMs,
   type ResourceSummary,
 } from "../shared/environment-metrics.js";
 import {
@@ -27,6 +36,8 @@ import {
 import { ConnectorVersion } from "./connector-version.js";
 import {
   Button,
+  IconButton,
+  Modal,
   CollectionLayout,
   Page,
   PageHeader,
@@ -217,6 +228,7 @@ function RuntimeSettings({
   const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState<UiFeedback>("");
   const [saving, setSaving] = useState(false);
+  const [sdkOpen, setSdkOpen] = useState(false);
   const [commandRuntime, setCommandRuntime] = useState("");
   const [modelProvider, setModelProvider] = useState<"codex" | "claude">();
   const path = `/environments/${environmentId}/runtime-settings`;
@@ -346,65 +358,72 @@ function RuntimeSettings({
                 <Badge tone={enabled ? "good" : "neutral"}>
                   {tr(enabled ? "web.cliEnabled" : "web.cliDisabled")}
                 </Badge>,
-                tool ? (
-                  tool.available ? (
-                    tr("web.available")
-                  ) : (
-                    <>
-                      {tr("monitor.unavailable")} · {toolStatus(tool)}
-                    </>
-                  )
-                ) : (
-                  tr("monitor.unknown")
+                tr(
+                  !tool
+                    ? "monitor.unknown"
+                    : tool.available
+                      ? "web.available"
+                      : "monitor.unavailable",
                 ),
                 tr(
                   (!modelConfigUnavailable && summaries[value]) ||
                     "monitor.unknown",
                 ),
-                <>
-                  <Actions>
-                    <Button
-                      aria-disabled={saving}
-                      onClick={() => {
-                        if (!saving) void update(value, !enabled);
-                      }}
-                    >
-                      {tr(
-                        enabled ? "web.cliDisableTool" : "web.cliEnableTool",
-                        {
-                          tool: label,
-                        },
-                      )}
-                    </Button>
-                    <Button onClick={() => setCommandRuntime(value)}>
-                      {tr("web.commands.title")}
-                    </Button>
-                    {provider && (
-                      <Button onClick={() => setModelProvider(provider)}>
-                        {tr("environment.modelConfig.open", { tool: label })}
-                      </Button>
+                <Actions>
+                  <IconButton
+                    icon={<Power />}
+                    label={tr(
+                      enabled ? "web.cliDisableTool" : "web.cliEnableTool",
+                      { tool: label },
                     )}
-                  </Actions>
-                  {value === "claude" && enabled && (
-                    <ClaudeSdkInstall
-                      environmentId={environmentId}
-                      name={environmentName}
-                      unavailable={sdkUnavailable}
-                      onChecked={() => {
-                        setAttempt((value) => value + 1);
-                        void onSaved().catch((failure) =>
-                          setError(caughtFeedback(failure)),
-                        );
-                      }}
+                    aria-disabled={saving}
+                    onClick={() => {
+                      if (!saving) void update(value, !enabled);
+                    }}
+                  />
+                  <IconButton
+                    icon={<Terminal />}
+                    label={tr("web.commands.title")}
+                    onClick={() => setCommandRuntime(value)}
+                  />
+                  {provider && (
+                    <IconButton
+                      icon={<Settings />}
+                      label={tr("environment.modelConfig.open", {
+                        tool: label,
+                      })}
+                      onClick={() => setModelProvider(provider)}
                     />
                   )}
-                </>,
+                  {value === "claude" && enabled && (
+                    <IconButton
+                      icon={<Package />}
+                      label="Claude Agent SDK"
+                      onClick={() => setSdkOpen(true)}
+                    />
+                  )}
+                </Actions>,
               ],
             };
           })}
         />
       )}
       {saving && <p role="status">{tr("web.cliSettingsSaving")}</p>}
+      {sdkOpen && (
+        <Modal title="Claude Agent SDK" onClose={() => setSdkOpen(false)}>
+          <ClaudeSdkInstall
+            environmentId={environmentId}
+            name={environmentName}
+            unavailable={sdkUnavailable}
+            onChecked={() => {
+              setAttempt((value) => value + 1);
+              void onSaved().catch((failure) =>
+                setError(caughtFeedback(failure)),
+              );
+            }}
+          />
+        </Modal>
+      )}
       {commandRuntime && (
         <CommandsDialog
           environmentId={environmentId}
@@ -502,7 +521,10 @@ export function EnvironmentsPage({
             </Button>
           </InfoBadge>
         ) : tool?.available === false ? (
-          <InfoBadge key={name} label={name + " · " + tr("monitor.unavailable")}>
+          <InfoBadge
+            key={name}
+            label={name + " · " + tr("monitor.unavailable")}
+          >
             {toolStatus(tool)}
           </InfoBadge>
         ) : (
@@ -753,9 +775,17 @@ export function EnvironmentsPage({
           ]}
           rows={visible.map((e: any) => {
             const supported = e.capabilities?.includes(metricsCapability);
-            const resources: ResourceSummary | undefined = supported
-              ? e.resources
-              : undefined;
+            const resources: ResourceSummary | undefined =
+              supported &&
+              e.online &&
+              Date.now() - e.resources?.sampledAt <= maxSampleGapMs
+                ? e.resources
+                : undefined;
+            const disk = resources?.disk;
+            const total = disk?.totalBytes;
+            const used = disk?.usedBytes;
+            const capacityKnown =
+              total != null && total > 0 && used != null && used <= total;
             const unknown = tr("monitor.unknown");
             const versionStatus = e.connectorUpdate?.status;
             const openOverview = () => {
@@ -780,18 +810,15 @@ export function EnvironmentsPage({
                 <>
                   {e.connectorVersion || unknown}
                   <br />
-                  {e.connectorVersion && (
-                    <div>
-                      {tr(
-                        versionStatus === "current"
-                          ? "monitor.current"
-                          : versionStatus === "different"
-                            ? "monitor.different"
-                            : "monitor.unknown",
-                      )}
-                    </div>
-                  )}
                   <Button
+                    variant={
+                      versionStatus === "different" ? "attention" : "secondary"
+                    }
+                    aria-description={
+                      versionStatus === "different"
+                        ? tr("monitor.different")
+                        : undefined
+                    }
                     size="small"
                     aria-expanded={!!expanded[e.id]}
                     onClick={() =>
@@ -809,33 +836,18 @@ export function EnvironmentsPage({
                   label={tr("monitor.memory")}
                   value={resources?.memoryPercent}
                 />,
-                <>
-                  {resources?.disk
-                    ? byteAmount(resources.disk.availableBytes)
-                    : unknown}
-                  {resources && (
-                    <div>
-                      <small>
-                        {tr("monitor.sample")} ·{" "}
-                        {new Date(resources.sampledAt).toLocaleString(
-                          currentLocale(),
-                        )}
-                      </small>
-                      {resources.disk && (
-                        <div>
-                          <small>
-                            {tr("monitor.volume")} · {resources.disk.volume}
-                          </small>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {!supported && (
-                    <div>
-                      <small>{tr("monitor.legacy")}</small>
-                    </div>
-                  )}
-                </>,
+                <Utilization
+                  label={tr("monitor.disk")}
+                  value={capacityKnown ? (100 * used) / total : null}
+                  reading={
+                    capacityKnown
+                      ? tr("monitor.capacity", {
+                          used: byteAmount(used),
+                          total: byteAmount(total),
+                        })
+                      : undefined
+                  }
+                />,
               ],
             };
           })}

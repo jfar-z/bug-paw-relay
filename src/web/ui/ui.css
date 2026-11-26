@@ -78,6 +78,11 @@
 .ui-button.btn.ui-button-danger {
   color: var(--ui-danger);
 }
+.ui-button.btn.ui-button-attention {
+  color: var(--ui-danger);
+  background: color-mix(in srgb, var(--danger) 23%, var(--panel));
+  border-color: var(--danger);
+}
 .ui-button.btn.ui-button-small {
   min-height: 32px;
   padding: 5px 10px;

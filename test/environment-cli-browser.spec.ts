@@ -184,13 +184,18 @@ test("环境编码工具启停按环境隔离，旧表单由服务端拒绝", as
     });
     // 两种布局都保留两行，窄屏字段可在正文宽度内完整阅读。
     const list = page.getByRole("table", { name: "编码工具" });
-    for (const width of [1440, 390]) {
+    for (const width of [1440, 960, 390, 320]) {
       await page.setViewportSize({width,height:844});
       const rows = list.locator("tbody tr");
       await expect(rows).toHaveCount(2);
       const bounds = await rows.evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().toJSON()));
       expect(bounds[1].top).toBeGreaterThanOrEqual(bounds[0].bottom);
       expect(bounds[0].right).toBeLessThanOrEqual(width);
+      const buttons = rows.last().locator("td:last-child button");
+      await expect(buttons).toHaveCount(4);
+      const positions = await buttons.evaluateAll(items => items.map(item => item.getBoundingClientRect().toJSON()));
+      expect(new Set(positions.map(box => box.top)).size).toBe(1);
+      expect(positions.at(-1)!.right).toBeLessThanOrEqual(bounds[1].right);
     }
     await page.setViewportSize({width:1440,height:1000});
     // 注入一次写入失败，其余读写均走真实服务。
@@ -223,6 +228,7 @@ test("环境编码工具启停按环境隔离，旧表单由服务端拒绝", as
     await oldPage.unroute("**/api/state/query");
     const oldConnector = await connect();
     await page.reload();
+    await page.getByRole("button", { name: "Claude Agent SDK", exact: true }).click();
     await expect(page.getByText(/请升级连接器以在线安装 SDK/)).toBeVisible();
     await expect(
       page.getByRole("button", { name: "在线安装 SDK" }),
@@ -231,6 +237,7 @@ test("环境编码工具启停按环境隔离，旧表单由服务端拒绝", as
     await expect.poll(() => service.peers.has(env.id)).toBe(false);
     await connect(true);
     await page.reload();
+    await page.getByRole("button", { name: "Claude Agent SDK", exact: true }).click();
     const installSdk = page.getByRole("button", { name: "在线安装 SDK" });
     await expect(
       page.getByText(/Fixture A.*Claude Agent SDK 0.3.322/),
@@ -251,7 +258,10 @@ test("环境编码工具启停按环境隔离，旧表单由服务端拒绝", as
     finishInstall!();
     await expect(page.getByText("SDK 已安装", { exact: true })).toBeVisible();
     await page.reload();
+    await page.getByRole("button", { name: "Claude Agent SDK", exact: true }).click();
     await expect(page.getByText("SDK 已安装", { exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("button", { name: "Claude Agent SDK", exact: true })).toBeFocused();
     expect(installs).toBe(1);
     const blockedSend = await second.request.post(
       base + "/api/sessions/" + session.id + "/send",

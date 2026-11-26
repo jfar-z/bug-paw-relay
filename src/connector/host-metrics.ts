@@ -89,7 +89,15 @@ async function linuxDisk(dir: string): Promise<Disk> {
         mount === "/" || path === mount || path.startsWith(mount + "/"),
     )
     .sort((a, b) => b.length - a.length)[0];
-  return volume ? { volume, availableBytes: stats.bavail * stats.bsize } : null;
+  // 已用量按实际占用块计算，避免把预留的空闲块算作已用。
+  return volume
+    ? {
+        volume,
+        availableBytes: stats.bavail * stats.bsize,
+        totalBytes: stats.blocks * stats.bsize,
+        usedBytes: (stats.blocks - stats.bfree) * stats.bsize,
+      }
+    : null;
 }
 
 /** 使用系统网络适配器与卷管理接口，数据目录通过环境参数传入。 */
@@ -99,7 +107,7 @@ async function windowsMetrics(
   const script = [
     "$ErrorActionPreference='Stop'",
     "$disk=$null; $interfaces=$null",
-    "try { $v=Get-Volume -FilePath $env:RELAY_METRICS_FILE; if ($v) { $disk=@{ volume=[string]$v.Path; availableBytes=[long]$v.SizeRemaining } } } catch {}",
+    "try { $v=Get-Volume -FilePath $env:RELAY_METRICS_FILE; if ($v) { $disk=@{ volume=[string]$v.Path; availableBytes=[long]$v.SizeRemaining; totalBytes=[long]$v.Size; usedBytes=[long]($v.Size - $v.SizeRemaining) } } } catch {}",
     "try { $adapters=@(Get-NetAdapter -Physical | Where-Object Status -eq 'Up')",
     "if (!$adapters.Count) { $ids=@(Get-NetRoute | Where-Object { $_.DestinationPrefix -in '0.0.0.0/0','::/0' } | Select-Object -ExpandProperty InterfaceIndex -Unique); $adapters=@(Get-NetAdapter | Where-Object { $_.Status -eq 'Up' -and $_.ifIndex -in $ids }) }",
     "if ($adapters.Count) { $interfaces=@(foreach ($a in $adapters) { $s=Get-NetAdapterStatistics -Name ([System.Management.Automation.WildcardPattern]::Escape($a.Name)); if ($null -eq $s.ReceivedBytes -or $null -eq $s.SentBytes) { throw 'counter' }; @{ id=[string]$a.InterfaceGuid; received=[long]$s.ReceivedBytes; sent=[long]$s.SentBytes } }) } } catch { $interfaces=$null }",

@@ -18,7 +18,13 @@ export const resourcesSchema = z.object({
   cpuPercent: percent,
   memoryPercent: percent,
   disk: z
-    .object({ volume: z.string().min(1).max(4096), availableBytes: counter })
+    .object({
+      volume: z.string().min(1).max(4096),
+      availableBytes: counter,
+      // 旧连接器仅报告可用空间。
+      totalBytes: counter.optional(),
+      usedBytes: counter.optional(),
+    })
     .nullable()
     .catch(null),
 });

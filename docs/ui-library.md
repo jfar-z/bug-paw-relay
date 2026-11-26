@@ -11,7 +11,7 @@ The application and the authenticated `#ui` gallery import `src/web/ui/index.tsx
 
 ## Usage and content contracts
 
-Use Button variants `primary`, `secondary`, `ghost`, `danger`; default type is `button`, forms must specify `submit`. IconButton requires a label. Agent controls use shared SVG icons; full access includes a visible warning marker, not color alone. Send uses ArrowUp; thinking uses Brain.
+Use Button variants `primary`, `secondary`, `ghost`, `danger`, and `attention` (highlight a connector version mismatch); default type is `button`, forms must specify `submit`. IconButton requires a label. Agent controls use shared SVG icons; full access includes a visible warning marker, not color alone. Send uses ArrowUp; thinking uses Brain.
 
 Select's closed value truncates within the parent width; the open list wraps the complete labels. `searchable` retains the input and focus when the keyboard changes the visible viewport. Actions belong in ActionMenu, not a Select. FormField associates labels, help and validation errors; groups use fieldset/legend, never nested labels.
 

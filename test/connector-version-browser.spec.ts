@@ -91,6 +91,14 @@ test("环境列表升级提醒覆盖未知、差异、一致与离线版本", as
     await page.keyboard.press("Escape");
     const card = (name: string) => page.getByRole("row").filter({has:page.getByRole("button",{name,exact:true})});
     const versionPanel = (name:string) => card(name).locator("xpath=following-sibling::tr[1]");
+    // 列表仅以更新按钮底色提示版本差异，详情仍保留完整说明。
+    const versionCell = (name: string) => card(name).getByRole("cell").nth(3);
+    const updateButton = (name: string) => versionCell(name).getByRole("button");
+    await expect(versionCell("版本不同")).not.toContainText("版本不同");
+    await expect(versionCell("已是最新版")).not.toContainText("最新");
+    await expect(updateButton("版本不同")).toHaveAccessibleDescription("版本不同");
+    const currentBackground = await updateButton("已是最新版").evaluate(el => getComputedStyle(el).backgroundColor);
+    await expect(updateButton("版本不同")).not.toHaveCSS("background-color", currentBackground);
     for (const button of await page.getByRole("button",{name:"版本与更新"}).all()) await button.click();
     await expect(
       versionPanel("旧连接器").getByText("连接器版本未知，建议升级", { exact: true }),

@@ -48,6 +48,21 @@
   white-space: normal;
   overflow-wrap: anywhere;
 }
+/* 为单行图标操作预留宽度，窄屏卡片使用完整行。 */
+@media (min-width: 901px) {
+  .ui-monitor-list:has(.ui-icon-wrap) th:last-child {
+    width: calc(4 * var(--ui-control) + 32px);
+  }
+}
+.ui-monitor-list td .ui-actions:has(.ui-icon-wrap) {
+  flex-wrap: nowrap;
+  gap: 2px;
+}
+.ui-monitor-list .ui-actions > .ui-icon-wrap:last-child::after {
+  inset-inline-start: auto;
+  inset-inline-end: 0;
+  transform: none;
+}
 .ui-mobile-field {
   display: none;
 }

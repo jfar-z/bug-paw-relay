@@ -29,7 +29,7 @@ export function Button({
   React.ComponentProps<typeof BaseButton>,
   "primary" | "className" | "style" | "icon"
 > & {
-  variant?: "primary" | "secondary" | "ghost" | "danger";
+  variant?: "primary" | "secondary" | "ghost" | "danger" | "attention";
   size?: "normal" | "small";
   shape?: "text" | "icon";
   icon?: ReactNode;

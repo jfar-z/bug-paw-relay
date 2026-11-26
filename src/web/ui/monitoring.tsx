@@ -63,7 +63,9 @@ export function ResponsiveList({
 export function Utilization({
   value,
   label,
+  reading,
 }: {
+  reading?: string;
   value?: number | null;
   label: string;
 }) {
@@ -74,7 +76,7 @@ export function Utilization({
   }).format(value / 100);
   return (
     <div className="ui-utilization">
-      {percent}
+      {reading ?? percent}
       <meter
         min={0}
         max={100}
