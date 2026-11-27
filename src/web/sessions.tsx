@@ -11,9 +11,9 @@ import {
   ConversationPane,
   Composer,
   Row,
-  Textarea,
 } from "./ui/index.js";
 import { SessionConfiguration } from "./session-configuration.js";
+import { NativeInteraction } from "./native-interaction.js";
 import { QuestionCard, mergeQuestions } from "./user-questions.js";
 import { localizeProjection } from "../shared/session-display.js";
 import { feedback, caughtFeedback, type UiFeedback } from "./locale.js";
@@ -245,7 +245,6 @@ export function Sessions({
   const [fileHref, setFileHref] = useState("");
   const fileSession = useRef("");
   useEffect(() => setFileHref(""), [selected]);
-  const [answerModal, setAnswer] = useState<any>(null);
   const [archiveFilter, setArchiveFilter] = useState("active");
   const [selection, setSelection] = useState<string[]>([]);
   const [selecting, setSelecting] = useState(false);
@@ -295,7 +294,6 @@ export function Sessions({
     setPending(null);
     setConfiguring(false);
     setBusy(false);
-    setAnswer(null);
     setList(!selected);
     follow.current = true;
     if (!session || native) return;
@@ -441,7 +439,7 @@ export function Sessions({
           status: data.status,
           ...(ended ? { interactions: [] } : {}),
         }));
-        if (ended) { revisions.interactions++; setAnswer(null); }
+        if (ended) revisions.interactions++;
         reconcileState(data.status, data.executionId);
         if (canPoll()) void refreshState.current?.();
       } else if (data.type === "metadata") {
@@ -450,7 +448,8 @@ export function Sessions({
       } else if (data.type === "update") {
         const event = data.event;
         // 迟到序号仅补时间线，旧交互不能取代已处理的新状态。
-        const fresh = !event?.sequence || event.sequence > (sequence.get(event.executionId) || 0);
+        const fresh = data.executionId === currentSession.current?.executionId &&
+          (!event?.sequence || event.sequence > (sequence.get(event.executionId) || 0));
         if (fresh && data.title) revisions.title++;
         if (fresh && data.status) revisions.status++;
         if (fresh && data.interactions) revisions.interactions++;
@@ -1451,22 +1450,18 @@ export function Sessions({
                 {history?.interactions
                   ?.filter(
                     (i: any) =>
-                      !i.question &&
-                      ![
-                        "item/tool/requestUserInput",
-                        "AskUserQuestion",
-                      ].includes(i.method),
+                      i.delivery === "unconfirmed" || !history?.questionRecords?.some(
+                        (record: any) => record.id === i.id && record.executionId === i.executionId),
                   )
-                  .map((i: any) => (
-                    <div className="approval" key={i.id}>
-                      <h3>{tr("web.awaitingNativeInteraction")}</h3>
-                      <p>{i.method}</p>
-                      <pre>{JSON.stringify(i.params, null, 2)}</pre>
-                      <Button variant="primary" onClick={() => setAnswer(i)}>
-                        {tr("web.viewAndRespond")}
-                      </Button>
-                    </div>
-                  ))}
+                  .filter((i: any) => active && status !== "stopping" && i.executionId === session.executionId)
+                  .map((i: any) => {
+                    const fileEvent = i.method === "item/fileChange/requestApproval" && i.params?.itemId
+                      ? events.find((e: any) => e.data?.item?.id === i.params.itemId && e.data.item.type === "fileChange" &&
+                        (e.executionId ? e.executionId === i.executionId : e.turnId && e.turnId === i.params.turnId))
+                      : undefined;
+                    return <NativeInteraction key={i.id} item={i} fileChanges={fileEvent?.data.item.changes}
+                      disabled={!environment?.online || !streaming} refresh={() => refreshHistory.current()} />;
+                  })}
               </div>
             </div>
             <Composer
@@ -1838,20 +1833,6 @@ export function Sessions({
             onClose={() => setFileHref("")}
           />
         )}
-        {answerModal && (
-          <Modal
-            title={tr("web.nativeApprovalsAndUserInput")}
-            onClose={() => setAnswer(null)}
-          >
-            <NativeAnswer
-              interaction={answerModal}
-              onSaved={() => {
-                setAnswer(null);
-                refreshHistory.current();
-              }}
-            />
-          </Modal>
-        )}
         {publications.viewer}
       </ConversationPane>
     </WorkspaceLayout>
@@ -1901,6 +1882,8 @@ function NativeEvent({
       </details>
     );
   }
+  if (type === "relay/interaction/unconfirmed")
+    return <p className="error-box" role="status">{tr("web.native.unconfirmed")} · {data.method}</p>;
   if (type === "relay/approval/auto")
     return (
       <p className="note native-retry" role="status">
@@ -1953,151 +1936,4 @@ function NativeEvent({
     return <ErrorBox error={message} />;
   }
   return null;
-}
-function NativeAnswer({ interaction: i, onSaved }: any) {
-  useLocale();
-  const [text, setText] = useState("{}");
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [error, setError] = useState<UiFeedback>("");
-  const [busy, setBusy] = useState(false);
-  const questions = i.params.questions || i.params.input?.questions;
-  const command =
-    i.method.includes("commandExecution") || i.method.includes("fileChange");
-  const claude = !i.method.includes("/");
-  async function send(answer: any) {
-    setBusy(true);
-    try {
-      await api("/executions/" + i.executionId + "/answer", {
-        interactionId: i.id,
-        answer,
-      });
-      onSaved();
-    } catch (e) {
-      setError(caughtFeedback(e as Error));
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <>
-      <p>{i.method}</p>
-      <pre className="native-request">{JSON.stringify(i.params, null, 2)}</pre>
-      {questions
-        ? questions.map((q: any) => (
-            <Field key={q.id || q.question} label={q.question || q.header}>
-              {q.options?.length > 0 && (
-                <div className="choices">
-                  {q.options.map((o: any) => (
-                    <Button
-                      key={o.label}
-                      onClick={() =>
-                        setAnswers({
-                          ...answers,
-                          [q.id || q.question]: o.label,
-                        })
-                      }
-                    >
-                      {o.label}
-                    </Button>
-                  ))}
-                </div>
-              )}
-              <Input
-                value={answers[q.id || q.question] || ""}
-                onChange={(e) =>
-                  setAnswers({
-                    ...answers,
-                    [q.id || q.question]: e.target.value,
-                  })
-                }
-              />
-            </Field>
-          ))
-        : !command &&
-          !claude && (
-            <Field
-              label={tr("web.nativeResponseJsonFillAccordingToTheRequest")}
-            >
-              <Textarea
-                variant="code"
-                rows={6}
-
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-              />
-            </Field>
-          )}
-      <ErrorBox error={error} />
-      <footer>
-        {command ? (
-          <>
-            <Button
-              disabled={busy}
-              onClick={() => send({ decision: "decline" })}
-            >
-              {tr("web.reject")}
-            </Button>
-            <Button
-              variant="primary"
-              disabled={busy}
-              onClick={() => send({ decision: "accept" })}
-            >
-              {tr("web.approveThisTime")}
-            </Button>
-          </>
-        ) : questions ? (
-          <Button
-            variant="primary"
-            disabled={busy}
-            onClick={() =>
-              send(
-                claude
-                  ? {
-                      approve: true,
-                      updatedInput: { ...i.params.input, answers },
-                    }
-                  : {
-                      answers: Object.fromEntries(
-                        Object.entries(answers).map(([k, v]) => [
-                          k,
-                          { answers: [v] },
-                        ]),
-                      ),
-                    },
-              )
-            }
-          >
-            {tr("web.submitAnswer")}
-          </Button>
-        ) : claude ? (
-          <>
-            <Button disabled={busy} onClick={() => send({ approve: false })}>
-              {tr("web.reject")}
-            </Button>
-            <Button
-              variant="primary"
-              disabled={busy}
-              onClick={() => send({ approve: true })}
-            >
-              {tr("web.approveThisTime")}
-            </Button>
-          </>
-        ) : (
-          <Button
-            variant="primary"
-            disabled={busy}
-            onClick={() => {
-              try {
-                void send(JSON.parse(text));
-              } catch {
-                setError(feedback("web.invalidJsonFormat"));
-              }
-            }}
-          >
-            {tr("web.submitResponse")}
-          </Button>
-        )}
-      </footer>
-    </>
-  );
 }

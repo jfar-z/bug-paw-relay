@@ -526,7 +526,7 @@ export function historyEvents(history: any, includeQuestions = false): any[] {
       const id = JSON.stringify(["approval", executionId, data.interactionId ?? event.sequence]);
       if (rows.has(id)) continue;
       putRow(id, { id, type, data });
-    } else if (type === "error" || (type === "result" && data.is_error)) {
+    } else if (type === "relay/interaction/unconfirmed" || type === "error" || (type === "result" && data.is_error)) {
       const id = `error:${event.executionId}:${event.sequence}`;
       putRow(id, {
         id,

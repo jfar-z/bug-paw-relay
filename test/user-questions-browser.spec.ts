@@ -11,63 +11,69 @@ import {
   validateQuestionAnswer,
 } from "../src/shared/user-questions.js";
 
+/** 建立带独立数据库、会话和等待中执行的真实服务。 */
+async function questionSession() {
+  const dir = mkdtempSync(join(tmpdir(), "relay-question-browser-"));
+  const probe = createServer();
+  await new Promise<void>((r) => probe.listen(0, "127.0.0.1", r));
+  const port = (probe.address() as any).port;
+  await new Promise<void>((r) => probe.close(() => r()));
+  const base = `http://127.0.0.1:${port}`;
+  const { app, store, service } = await createApp({
+    dataDir: dir,
+    publicUrl: base,
+    webDir: resolve("dist/web"),
+    secureCookie: false,
+  });
+  const cookie = randomUUID();
+  store.put("users", { username: "fixture" }, "owner");
+  store.db
+    .prepare("INSERT INTO auth_sessions VALUES(?,?,?)")
+    .run(digest(cookie), "owner", Date.now() + 600000);
+  const env = store.put("environments", {
+    name: "fixture",
+    approved: true,
+    roots: [],
+    capabilities: ["user-questions-v1", "runtime-options-v1"],
+  });
+  const project = service.save("projects", {
+    name: "fixture",
+    directories: [
+      { environmentId: env.id, rootId: "root", relativePath: "." },
+    ],
+  });
+  service.peers.set(env.id, {
+    call: async () => ({}),
+    close: () => {},
+  } as any);
+  const session = service.createSession({
+    agentId: service.save("agents", { name: "Fixture agent" }).id,
+    title: "fixture",
+    projectId: project.id,
+    environmentId: env.id,
+    rootId: "root",
+    runtime: "codex",
+  });
+  const executionId = randomUUID();
+  store.db
+    .prepare("INSERT INTO executions VALUES(?,?,?,?,?,?,?)")
+    .run(
+      executionId,
+      null,
+      session.id,
+      env.id,
+      "waiting",
+      "{}",
+      new Date().toISOString(),
+    );
+  store.put("sessions", { status: "waiting", executionId }, session.id);
+  return { dir, app, store, env, service, session, executionId, cookie, base, port };
+}
+
 /** 真 HTTP/SSE 与产品页面连接可控环境 RPC；不将协议桩冒充供应商模型验收。 */
 for (const locale of ["zh-CN", "en"] as const)
   test(`问题卡片完整交互与恢复 ${locale}`, async ({ page, context }) => {
-    const dir = mkdtempSync(join(tmpdir(), "relay-question-browser-"));
-    const probe = createServer();
-    await new Promise<void>((r) => probe.listen(0, "127.0.0.1", r));
-    const port = (probe.address() as any).port;
-    await new Promise<void>((r) => probe.close(() => r()));
-    const base = `http://127.0.0.1:${port}`;
-    const { app, store, service } = await createApp({
-      dataDir: dir,
-      publicUrl: base,
-      webDir: resolve("dist/web"),
-      secureCookie: false,
-    });
-    const cookie = randomUUID();
-    store.put("users", { username: "fixture" }, "owner");
-    store.db
-      .prepare("INSERT INTO auth_sessions VALUES(?,?,?)")
-      .run(digest(cookie), "owner", Date.now() + 600000);
-    const env = store.put("environments", {
-      name: "fixture",
-      approved: true,
-      roots: [],
-      capabilities: ["user-questions-v1", "runtime-options-v1"],
-    });
-    const project = service.save("projects", {
-      name: "fixture",
-      directories: [
-        { environmentId: env.id, rootId: "root", relativePath: "." },
-      ],
-    });
-    service.peers.set(env.id, {
-      call: async () => ({}),
-      close: () => {},
-    } as any);
-    const session = service.createSession({
-      agentId: service.save("agents", { name: "Fixture agent" }).id,
-      title: "fixture",
-      projectId: project.id,
-      environmentId: env.id,
-      rootId: "root",
-      runtime: "codex",
-    });
-    const executionId = randomUUID();
-    store.db
-      .prepare("INSERT INTO executions VALUES(?,?,?,?,?,?,?)")
-      .run(
-        executionId,
-        null,
-        session.id,
-        env.id,
-        "waiting",
-        "{}",
-        new Date().toISOString(),
-      );
-    store.put("sessions", { status: "waiting", executionId }, session.id);
+    const { dir, app, store, env, service, session, executionId, cookie, base, port } = await questionSession();
     const records: QuestionRecord[] = ["codex", "claude"].map(
       (provider, i) => ({
         id: randomUUID(),
@@ -456,3 +462,71 @@ for (const locale of ["zh-CN", "en"] as const)
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+/** 真实会话页与 HTTP 答复，环境 RPC 使用可控原生交互样例。 */
+test("原生权限、业务表单与不可答请求", async ({ page, context }) => {
+    const { dir, app, env, service, session, executionId, cookie, base, port } = await questionSession();
+    const command = { id: randomUUID(), executionId, method: "item/commandExecution/requestApproval",
+      params: { command: "pwd", cwd: "/workspace" }, approval: { kind: "permission", decline: { decision: "decline" } } };
+    const form = { id: randomUUID(), executionId, method: "mcpServer/elicitation/request", params: { message: "Choose reports" },
+      formSchema: { properties: {
+        count: { type: "integer", minimum: 1 }, reports: { type: "array", items: { enum: ["alpha", "beta"] }, minItems: 1 },
+        label: { type: "string" }, includeNotes: { type: "boolean", default: false },
+      }, required: ["count", "reports"] } };
+    const unknown = { id: randomUUID(), executionId, method: "unknownTool", params: {} };
+    const uncertain = { ...command, id: randomUUID(), delivery: "unconfirmed" };
+    const file = { ...command, id: randomUUID(), method: "item/fileChange/requestApproval", params: { itemId: "patch" } };
+    let items: any[] = [command, file, form, unknown, uncertain];
+    const replies: any[] = [];
+    service.peers.set(env.id, {
+      call: async (method: string, params: any) => {
+        if (method === "session.history") return { interactions: items, events: [
+          { type: "item/started", executionId, sequence: 1, data: { item: {
+            type: "fileChange", id: "patch", changes: [{ path: "report.md" }],
+          } } },
+        ] };
+        if (method === "interaction.answer") {
+          replies.push(params.answer);
+          items = items.filter(item => item.id !== params.interactionId);
+        }
+        return {};
+      },
+      close: () => {},
+    } as any);
+    await app.listen({ host: "127.0.0.1", port });
+    await context.addCookies([{ name: "relay_session", value: cookie, url: base }]);
+    try {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto(base + "/#chat/" + session.id);
+      const cards = page.locator(".approval");
+      await expect(cards).toHaveCount(5);
+      await expect(cards.first()).toContainText("/workspace");
+      await cards.getByRole("button", { name: "批准本次" }).first().press("Enter");
+      await expect(cards).toHaveCount(4);
+      await expect(cards.first()).toContainText("report.md");
+      await cards.first().getByRole("button", { name: "拒绝", exact: true }).click();
+      await expect(cards).toHaveCount(3);
+      const business = cards.filter({ hasText: "Choose reports" });
+      const submit = business.getByRole("button", { name: "提交回答" });
+      await expect(submit).toBeDisabled();
+      await business.getByRole("spinbutton").fill("2");
+      await business.getByRole("checkbox", { name: "beta" }).check();
+      await submit.click();
+      await expect(cards).toHaveCount(2);
+      expect(replies).toEqual([{ allow: true }, { allow: false }, { action: "accept", content: { count: 2, reports: ["beta"], includeNotes: false } }]);
+      await page.reload();
+      await expect(cards.filter({ hasText: "答复送达未确认" })).toHaveCount(1);
+      await expect(cards.filter({ hasText: "无法处理此类请求" })).toHaveCount(1);
+      await expect(cards.locator("button, textarea, input")).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "停止", exact: true })).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      service.setState(executionId, "cancelled", 2);
+      await expect(cards).toHaveCount(0);
+      service.sessionEvents.emit(session.id, { type: "update", executionId: randomUUID(), status: "waiting", interactions: items });
+      await expect(cards).toHaveCount(0);
+    } finally {
+      await context.close();
+      await app.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+});
