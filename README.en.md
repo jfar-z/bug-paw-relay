@@ -8,6 +8,21 @@ Give Codex or Claude Code a task on your own development machine from a phone or
 
 ![Workbench with the navigation expanded, showing the current stage and handoff history of Demo Task](docs/images/workbench.png)
 
+## 1.0.1 release notes
+
+### Feature highlights
+
+- **Session management** lets you pin sessions across projects, reorder your pins, select a range of sessions, and delete them in batches.
+- **Messages and file previews** now render math in conversations, let you copy the original message text, and offer rendered and source views for Markdown attachments. Session files and board handoff artifacts can both open full screen.
+- **Light Apps** can call a dedicated HTTP service in the development environment. You can manage apps and switch backends from another session in the same environment. You can also send individual feedback entries to the originating session and retry a failed notification.
+- **Approvals and agents.** Approval prompts show the permission scope and forms requested by the coding tool. Acknowledgments confirm delivery of your reply, and automatic decisions appear under the corresponding tool call. When you delete an agent, you can see which board stages still reference it.
+- **Environment monitoring** shows CPU, memory, and disk usage alongside traffic sent and received over the last 5 minutes, 1 hour, or 24 hours. Traffic is measured at the development machine’s network interfaces and includes other processes.
+
+### Reduced network traffic
+
+- The browser requests state for the current page. Subsequent refreshes return only data groups that changed. The board list loads summaries, and opening a work item retrieves its full requirements, acceptance criteria, and handoffs. This reduces repeated transfers while a page is idle.
+- Live events deliver incremental session output without repeatedly fetching the entire conversation from the development machine. The client checks the environment’s history as needed when you open a session, reconnect, or reach the end of a run so it can recover missing messages.
+
 ## Main features
 
 | Section | What you can do |
