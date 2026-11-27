@@ -8,6 +8,8 @@ const output = process.argv[3];
 const release = readConnectorRelease(source);
 if (!release || release.releases.length !== 2 || new Set(release.releases.map(item => item.platform)).size !== 2)
   throw Error("连接器发行清单缺少 Windows 或 Linux 包");
+// 下载包进入服务镜像前，阻止缺少在线更新构建标识的发行清单。
+if (!release.revision) throw Error("连接器发行清单缺少源码提交标识");
 mkdirSync(output, { recursive: true });
 for (const file of ["release.json", ...release.releases.flatMap(item => [item.file, item.file + ".sha256"])])
   copyFileSync(join(source, "downloads", file), join(output, file));

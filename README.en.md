@@ -49,6 +49,8 @@ Type `@` in a project session, select a board, and ask the agent to turn your di
 
 Run these commands from the repository root on a Linux x64 build host. Install Docker, Node.js 24.19.0, npm, gcc, the MinGW-w64 x64 C compiler, curl, GNU tar, xz, zip, and unzip. Packaging requires access to the npm registry and Node.js downloads. Build both connector packages before building the server image, which includes them as downloads.
 
+The packager records the current Git commit in the release manifest and both connector packages. When building from a source archive without Git metadata, set `RELAY_SOURCE_REVISION` to the full commit SHA of that archive.
+
 ```sh
 npm ci
 npm run build

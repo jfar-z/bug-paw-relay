@@ -18,7 +18,7 @@ jobs:
 
       - name: Build the Windows and Linux connector packages
         run: |
-          docker run --rm -v "$PWD:/src" -w /src node:24.19.0-bookworm-slim bash -euc '
+          docker run --rm -e RELAY_SOURCE_REVISION="$(git rev-parse HEAD)" -v "$PWD:/src" -w /src node:24.19.0-bookworm-slim bash -euc '
             apt-get update -qq
             apt-get install -y --no-install-recommends ca-certificates curl gcc libc6-dev gcc-mingw-w64-x86-64 xz-utils zip unzip
             npm ci

@@ -62,6 +62,8 @@ docker pull "$RELAY_IMAGE"
 
 以下命令在 Linux x64 构建机的仓库根目录运行。准备 Docker、Node.js 24.19.0、npm、gcc、MinGW-w64 的 x64 C 编译器、curl、GNU tar、xz、zip 和 unzip。打包时需要访问 npm 和 Node.js 下载源。服务镜像内含 Windows 和 Linux 连接器，先打包再构建镜像。
 
+打包脚本会把当前 Git 提交写入发行清单和两个安装包。在没有 Git 元数据的源码归档中构建时，请将 `RELAY_SOURCE_REVISION` 设置为归档对应的完整提交 SHA。
+
 ```sh
 npm ci
 npm run build

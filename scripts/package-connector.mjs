@@ -17,12 +17,14 @@ import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { resolve, join, relative, isAbsolute, sep } from "node:path";
 /** 构建目标平台独立发行包，校验官方 Node 下载，不复制用户数据或开发依赖。 */
-// UAT 包以源码提交区分，避免同一路径静默替换不同连接器。
-const revision = process.env.RELAY_BUILD_REVISION || "";
-if (revision && !/^[a-f0-9]{40}$/.test(revision))
+// 预发构建沿用带提交后缀的版本；正式包也记录完整提交，供在线更新核验。
+const previewRevision = process.env.RELAY_BUILD_REVISION;
+const revision = previewRevision || process.env.RELAY_SOURCE_REVISION ||
+  execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+if (!/^[a-f0-9]{40}$/.test(revision))
   throw Error("构建提交标识无效");
 const baseVersion = JSON.parse(readFileSync("package.json", "utf8")).version;
-const version = baseVersion + (revision ? "-" + revision.slice(0, 12) : ""),
+const version = baseVersion + (previewRevision ? "-" + revision.slice(0, 12) : ""),
   nodeVersion = "24.19.0",
   cache = resolve(".vibe/portable-cache"),
   output = resolve("dist/portable");
@@ -105,7 +107,7 @@ for (const platform of ["linux", "windows"]) {
     JSON.stringify(
       {
         version,
-        revision: revision || undefined,
+        revision,
         platform,
         arch: "x64",
         updateProtocol: 3,
@@ -251,7 +253,7 @@ writeFileSync(
   JSON.stringify(
     {
       version,
-      revision: revision || undefined,
+      revision,
       updateProtocol: 3,
       // 与包内声明同源，禁止向旧协议伪装成格式一。
       dataFormat: 2,
