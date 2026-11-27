@@ -86,7 +86,32 @@ for (const width of [1440, 390]) {
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
     try {
-      await page.goto(base + "/#board/" + board.id);
+      // 旧地址和选择器清空后均应读取首页，具名选项仍应打开对应看板。
+      const other = service.copyBoard(board.id);
+      const catalog = page.locator(".board-catalog");
+      const boardCard = catalog.getByRole("button").filter({
+        has: page.getByRole("heading", { name: board.name, exact: true }),
+      });
+      const picker = page.locator(".board-header-actions button[aria-haspopup=listbox]");
+      async function expectHome(navigate: () => Promise<unknown>) {
+        const query = page.waitForResponse(response =>
+          response.url() === base + "/api/state/query" &&
+          !response.request().postDataJSON().groups.includes("boardPage"),
+        );
+        const [response] = await Promise.all([query, navigate()]);
+        expect(response.status()).toBe(200);
+        expect(response.request().postDataJSON()).not.toHaveProperty("boardId");
+        await expect(catalog).toBeVisible();
+      }
+      await expectHome(() => page.goto(base + "/#board/"));
+      await boardCard.click();
+      await picker.click();
+      await page.getByRole("option", { name: other.name, exact: true }).click();
+      await expect(page.locator(".board-title")).toHaveText(other.name);
+      await picker.click();
+      await expectHome(() => page.getByRole("option", { name: "请选择", exact: true }).click());
+      await expect(page).toHaveURL(base + "/#board");
+      await boardCard.click();
       const card = page.locator(".task").filter({ hasText: "恢复工作项" });
       await expect(card).toContainText("执行结束未推进");
       await expect(page.getByText("1 个待处理", { exact: true })).toBeVisible();
@@ -170,7 +195,7 @@ for (const width of [1440, 390]) {
       await expect(page.getByText("2 个待处理", { exact: true })).toBeVisible();
       await page.unroute("**/api/state/query");
       await page.goto(base + "/#board");
-      await expect(page.locator(".board-card")).toContainText("2 个待处理");
+      await expect(boardCard).toContainText("2 个待处理");
       await page.screenshot({ path: `.vibe/board-pending-${width}.png` });
       expect(errors).toEqual([]);
     } finally {

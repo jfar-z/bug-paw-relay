@@ -328,7 +328,8 @@ function App() {
       void refresh();
     }
   }
-  const boardId = page === "board" ? selected : undefined;
+  // 兼容旧的 #board/ 地址，首页查询应省略看板 ID。
+  const boardId = page === "board" && selected ? selected : undefined;
   const includeArchived = !!boardId && archiveBoard === boardId;
   const pageGroups: Record<string, string[]> = {
     chat: ["sessions", "projects", "sessionProjectIds", "agents", "environments"],
@@ -1688,7 +1689,7 @@ function Boards({
                 label={tr("web.boards")}
                 value={board.id}
                 options={options(state.boards)}
-                onChange={(v) => (location.hash = "board/" + v)}
+                onChange={(id) => (location.hash = id ? "board/" + id : "board")}
                 icon={<Columns3 aria-hidden="true" />}
               />
               <Button
