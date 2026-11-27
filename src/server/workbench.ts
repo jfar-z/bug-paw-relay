@@ -668,7 +668,7 @@ export class Workbench {
         const field = sourceField(sourceKind, sourceId);
         const version = s.store.get("lightVersions", versionId);
         const app = s.store.get("lightApps", version.appId);
-        if (app[field] !== sourceId || version[field] !== sourceId) lightError("LIGHT_SCOPE", 403);
+        if (version[field] !== sourceId || app.environmentId !== version.environmentId) lightError("LIGHT_SCOPE", 403);
         if (app.deletion) lightError("LIGHT_DELETED", 410);
         return { app, version };
       };
@@ -681,12 +681,14 @@ export class Workbench {
           parameters: z.object(source).strict(),
           errorFunction: readError,
           execute: this.observe(w, "light_app_versions", ({ sourceKind, sourceId }) => {
-            const apps = s.store.findBy("lightApps", sourceField(sourceKind, sourceId), sourceId)
+            const field = sourceField(sourceKind, sourceId);
+            const ids = new Set(s.store.findBy("lightVersions", field, sourceId).map(v => v.appId));
+            const apps = [...ids].map(id => s.store.get("lightApps", id))
               .filter((app) => !app.deletion)
               .map((app) => ({
                 appId: app.id, title: app.title, listed: app.listed, sessionId: app.sessionId,
                 itemId: app.itemId, environmentId: app.environmentId, projectId: app.projectId,
-                versions: lightVersionSummaries(s.store, app.id),
+                versions: lightVersionSummaries(s.store, app.id, false, { field, id: sourceId }),
               }));
             return JSON.stringify({ apps });
           }),

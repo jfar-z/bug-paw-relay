@@ -418,12 +418,13 @@ for (const mode of [
           assert.ok(firstRequest.tools.some((tool: any) => tool.name === "relay_light_publish"));
         if (!asyncQuestion) {
           assert.ok(firstRequest.tools.some((t:any) => t.name === "relay_light_versions"));
-          for (const name of ["relay_light_docs", "relay_light_unlist", "relay_light_delete"])
+          for (const name of ["relay_light_docs", "relay_light_unlist", "relay_light_relist", "relay_light_switch_backend", "relay_light_delete"])
             assert.equal(firstRequest.tools.some((t:any) => t.name === name), approval);
         }
         assert.ok(JSON.stringify(firstRequest).includes("You are connected to the user through BugPaw Relay"));
         if (approval) {
           const schema = firstRequest.tools.find((t:any) => t.name === "relay_light_publish").parameters;
+          assert.ok(schema.properties.newAppId && schema.properties.reuseBackend);
           assert.ok(!Object.hasOwn(schema.properties, "operationId"));
         }
         const handoffTool = firstRequest.tools?.find(
@@ -574,7 +575,7 @@ for (const mode of [
             const boardServer = captured.tools.find((t: any) => t.name === "mcp__relay_board");
             assert.ok(boardServer?.tools.some((t: any) => t.name === "relay_board_create"));
             const compatible = captured.tools.find((t:any) => t.name === "mcp__relay_light");
-            for (const name of ["relay_light_versions", "relay_light_unlist", "relay_light_delete"])
+            for (const name of ["relay_light_versions", "relay_light_unlist", "relay_light_relist", "relay_light_switch_backend", "relay_light_delete"])
               assert.ok(compatible.tools.some((tool:any) => tool.name === name));
             assert.equal(captured.model, "fixture");
             assert.notEqual(captured.reasoning?.effort, "high");

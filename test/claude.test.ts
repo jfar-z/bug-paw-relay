@@ -414,8 +414,12 @@ for (const mode of [
         JSON.stringify(events.filter((e) => e.type === "result")),
       );
       if (mode === "plain")
-        for (const name of ["light_docs", "light_publish", "light_unlist", "light_delete"])
+        for (const name of ["light_docs", "light_publish", "light_unlist", "light_relist", "light_switch_backend", "light_delete"])
           assert.ok(registeredTools.some(tool => tool.name === "mcp__relay__" + name));
+      if (mode === "plain") {
+        const publish = registeredTools.find(t => t.name === "mcp__relay__light_publish");
+        assert.ok(publish?.input_schema.properties.newAppId && publish.input_schema.properties.reuseBackend);
+      }
       if (mode === "empty")
         assert.ok(
           !registeredTools.some((t) => t.name === "mcp__relay__handoff"),

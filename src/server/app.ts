@@ -1993,7 +1993,7 @@ export async function createApp(options: AppOptions) {
                 idSchema.parse(p.operationId),
               );
             if (method.startsWith("board.")) return sessionBoards.agent(method.slice(6), environmentId, peer, p);
-            if (["light.docs", "light.publish", "light.feedback", "light.versions", "light.publish.status", "light.unlist", "light.delete"].includes(method))
+            if (["light.docs", "light.publish", "light.feedback", "light.versions", "light.publish.status", "light.unlist", "light.relist", "light.switchBackend", "light.delete"].includes(method))
               return await light.agent(method, environmentId, peer, p);
             if (method === "execution.event") {
               service.sessionEvent(environmentId, p);

@@ -3,6 +3,7 @@ import { extname } from "node:path";
 import { AppError } from "./contracts.js";
 import { message } from "./i18n.js";
 
+export const environmentLightCapability = "light-apps-environment-v1";
 export const lightCapability = "light-apps-v1";
 export const mimeTypes: Record<string, string> = {
   ".html": "text/html",
@@ -43,6 +44,9 @@ export function safeAsset(path: string) {
 }
 export const lifecycleCapability = "light-apps-v3";
 export const appTarget = z.object({ appId: z.uuid() }).strict();
+export const switchBackendInput = appTarget.extend({
+  backendServiceId: z.uuid().describe("候选专用实例 / Fresh instance registered under this appId."),
+});
 export const versionsCapability = "light-apps-v2";
 export function sessionProductContext(publish: boolean, query: boolean) {
   const feature = [
@@ -50,7 +54,7 @@ export function sessionProductContext(publish: boolean, query: boolean) {
     publish &&
       "Before building a Light App, call the Light App docs tool to read its runtime constraints. A request such as “make an X Light App” is a request to build and publish it. If the user asks to publish a Light App, use the publishing tool. If you suggest publishing it yourself, ask first.",
     query &&
-      "When the user refers to an earlier app or feedback, look up the relevant version in this conversation.",
+      "When the user refers to an earlier app or feedback, use the versions tool to search this environment. Filter by currentSessionOnly when the user asks about this session.",
     "If a Light App tool is unavailable, direct the user to the Light Apps page. Clarify ambiguous removal requests (unlist or permanently delete) and ask the user to select among ambiguous matches. Report the platform result, including pending confirmation or incomplete cleanup.",
     !publish &&
       !query &&
@@ -69,7 +73,7 @@ export const publishInput = z
       .uuid()
       .optional()
       .describe(
-        "Omit on first publish. To update, use the appId from this conversation's publish result or versions tool.",
+        "更新已有应用时从 versions 选择 appId / Select an existing appId from versions to publish an update.",
       ),
     title: z
       .string()
@@ -94,7 +98,9 @@ export const publishInput = z
       .max(512)
       .default("index.html")
       .describe("HTML entry relative to directory. Defaults to index.html."),
-    backendServiceId: z.uuid().optional().describe("Optional dedicated service ID registered in this session. Read Light App backend docs before binding."),
+    newAppId: z.uuid().optional().describe("首次带后端发布前生成一个 UUID 用于登记 / Generate a fresh UUID before registering a first backend. Use newAppId only for creation."),
+    reuseBackend: z.literal(true).optional().describe("沿用当前服务 / Reuse the current backend without starting a service. Omit both backend options for a static version."),
+    backendServiceId: z.uuid().optional().describe("切换到候选服务 / Switch to the dedicated instance registered for the selected app. Read backend docs first."),
     files: z
       .array(z.string().min(1).max(512))
       .max(128)
@@ -110,11 +116,12 @@ export const publishRequest = z
   .strict();
 export const versionsQuery = z
   .object({
+    currentSessionOnly: z.boolean().optional().describe("仅本会话实际发布的版本 / Only versions published by this session."),
     appId: z
       .uuid()
       .optional()
       .describe(
-        "Filter by an appId from this conversation. Omit to list all its apps and versions.",
+        "按本环境应用 ID 筛选 / Filter by appId or omit to list this environment.",
       ),
   })
   .strict();
@@ -123,7 +130,7 @@ export const feedbackQuery = z
     versionId: z
       .uuid()
       .describe(
-        "Version ID from this conversation's versions or publish result.",
+        "本环境版本 ID / Version ID from this environment.",
       ),
   })
   .strict();

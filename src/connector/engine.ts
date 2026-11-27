@@ -1646,8 +1646,8 @@ export class Engine {
                     nativeBoardTools: !!p.session.boardTools,
                     nativeLightTools:
                       !p.workflow || p.workflow.allowArtifacts
-                        ? "publish-v4"
-                        : "read-v2",
+                        ? "publish-v5"
+                        : "read-v3",
                   }
                 : {}),
             },
@@ -1755,7 +1755,7 @@ export class Engine {
           .catch(() => {});
       },
       light: async (
-        method: "light.docs" | "light.publish" | "light.feedback" | "light.versions" | "light.unlist" | "light.delete",
+        method: "light.docs" | "light.publish" | "light.feedback" | "light.versions" | "light.unlist" | "light.relist" | "light.switchBackend" | "light.delete",
         args: unknown,
         callId?: string,
       ) => {

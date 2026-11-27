@@ -1,7 +1,7 @@
 import { hostSampler } from "./host-metrics.js";
 import { metricsCapability } from "../shared/environment-metrics.js";
 import { LightBackend } from "./light-backend.js";
-import { backendCapability } from "../shared/light-apps.js";
+import { environmentLightCapability, backendCapability } from "../shared/light-apps.js";
 import { boardSessionTitleCapability } from "../shared/stage-handoff.js";
 import { boardCapability } from "../shared/session-boards.js";
 import { commandCapability } from "../shared/slash-commands.js";
@@ -138,10 +138,10 @@ export async function runWorker(settings: ConnectorConfig) {
       }
       if (method === "light.docs" && payload.args.topic === "backend") {
         const docs = await peer.call(method, payload);
-        return { ...docs, registrationDirectory: join(settings.dir, "light-services", docs.sessionId) };
+        return { ...docs, registrationDirectory: join(settings.dir, "light-services", docs.sessionId ?? "") };
       }
       if (method?.startsWith("board.")) return peer.call(method, payload, 180000);
-      if (["light.docs", "light.versions", "light.feedback", "light.unlist", "light.delete"].includes(method))
+      if (["light.docs", "light.versions", "light.feedback", "light.unlist", "light.relist", "light.switchBackend", "light.delete"].includes(method))
         return peer.call(method, payload, 180000);
       let result = await peer.call("workflow.handoff", payload);
       // 大文件交接使用短请求查询原操作，超时重试不重新创建上传。
@@ -381,6 +381,7 @@ export async function runWorker(settings: ConnectorConfig) {
                 "light-apps-v3",
                 "light-apps-v4",
                 backendCapability,
+                environmentLightCapability,
                 "stage-handoff-short-id-v1",
                 boardSessionTitleCapability,
                 "user-questions-v1",

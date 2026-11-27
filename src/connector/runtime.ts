@@ -2,7 +2,7 @@ import { boardInstruction, boardTool, boardTools, type BoardTool } from "../shar
 import {
   docsQuery,
   publishInput,
-  appTarget,
+  switchBackendInput, appTarget,
   feedbackQuery,
   versionsQuery,
   sessionProductContext,
@@ -28,14 +28,16 @@ import { randomUUID } from "node:crypto";
 import { loadClaudeSdk } from "./claude-sdk.js";
 import { z } from "zod";
 import { AppError, ensure } from "../shared/contracts.js";
-const docsDescription = "Read Light App authoring constraints before building. Topics cover the runtime, dedicated environment backend, version storage and debugging.";
+const docsDescription = "查询轻应用管理、发布及运行说明 / Read Light App authoring constraints before building. Topics cover the runtime, dedicated environment backend, version storage and debugging.";
 const publishDescription =
-  "Publish the selected static assets from this environment conversation as a BugPaw Relay Light App, with user consent. Optionally bind a running dedicated service (see backend docs). Returns appId, versionId, number and hasBackend.";
+  "经用户授权从本会话目录发布，可复用或切换后端 / Publish selected static assets from the initiating session with user consent. Reuse the current backend or switch to a registered dedicated service (see backend docs). Returns appId, versionId, number and hasBackend.";
 const versionsDescription =
-  "List apps and versions from this conversation, including listing status, publication time and feedback and runtime error counts. Optionally filter by appId.";
+  "查询本环境全部轻应用 / List apps and versions in this environment, including listing status, publication time and feedback and runtime error counts. Optionally filter by appId.";
 const lifecycleTools = [
-  { name: "relay_light_unlist", method: "light.unlist", description: "Unlist one explicitly selected app from this conversation. Preserves versions and feedback. Report pending confirmation when requested." },
-  { name: "relay_light_delete", method: "light.delete", description: "Request platform confirmation to permanently delete the selected app, all version files and feedback. Clarify ambiguous removal requests first." },
+  { name: "relay_light_switch_backend", method: "light.switchBackend", description: "只切换或恢复后端，不发布前端 / Switch to a registered instance for all backend-enabled versions without publishing frontend assets." },
+  { name: "relay_light_relist", method: "light.relist", description: "恢复所选应用全部版本的托管访问 / Relist all versions of the selected environment app." },
+  { name: "relay_light_unlist", method: "light.unlist", description: "下架并保留历史与反馈 / Unlist one explicitly selected app in this environment. Preserves versions and feedback. Report pending confirmation when requested." },
+  { name: "relay_light_delete", method: "light.delete", description: "在发起会话确认永久删除全部版本 / Request platform confirmation to permanently delete the selected app, all version files and feedback. Clarify ambiguous removal requests first." },
 ] as const;
 function lightMethod(name: string) {
   const lifecycle = lifecycleTools.find(tool => tool.name === name);
@@ -59,7 +61,7 @@ function environmentInstructions(session: any, workflow: any, light: boolean) {
     .join("\n\n");
 }
 const feedbackDescription =
-  "读取当前来源会话的指定版本反馈与运行报错 / Read feedback and runtime diagnostics for a version from this session.";
+  "读取本环境指定版本反馈与运行报错 / Read feedback and runtime diagnostics for an environment version.";
 /** 原生运行时适配事件均由环境本地记录，服务端仅接收状态索引。 */
 export interface RuntimeHooks {
   event: (type: string, data: any) => void;
@@ -74,7 +76,7 @@ export interface RuntimeHooks {
   done: (status: string) => void;
   board?: (tool: BoardTool, args: unknown, callId: string) => Promise<unknown>;
   light?: (
-    method: "light.docs" | "light.publish" | "light.feedback" | "light.versions" | "light.unlist" | "light.delete",
+    method: "light.docs" | "light.publish" | "light.feedback" | "light.versions" | "light.unlist" | "light.relist" | "light.switchBackend" | "light.delete",
     args: unknown,
     callId?: string,
   ) => Promise<unknown>;
@@ -538,7 +540,7 @@ export class CodexRuntime implements RuntimeHandle {
         for (const tool of lifecycleTools)
           params.dynamicTools.push({
             type: "function", name: tool.name, description: tool.description,
-            inputSchema: z.toJSONSchema(appTarget),
+            inputSchema: z.toJSONSchema(tool.method === "light.switchBackend" ? switchBackendInput : appTarget),
           });
       params.dynamicTools.push({
         type: "function",
@@ -572,7 +574,7 @@ export class CodexRuntime implements RuntimeHandle {
       nativeId &&
       this.hooks.light &&
       session.nativeLightTools !==
-        (!workflow || workflow.allowArtifacts ? "publish-v4" : "read-v2")
+        (!workflow || workflow.allowArtifacts ? "publish-v5" : "read-v3")
     ) {
       const call = this.hooks.light;
       const tools = params.dynamicTools
@@ -843,7 +845,7 @@ export class ClaudeRuntime implements RuntimeHandle {
         );
       if (!workflow || workflow.allowArtifacts)
         for (const tool of lifecycleTools)
-          lightTools.push(claudeTool(tool.name.replace("relay_", ""), tool.description, appTarget.shape,
+          lightTools.push(claudeTool(tool.name.replace("relay_", ""), tool.description, (tool.method === "light.switchBackend" ? switchBackendInput : appTarget).shape,
             async args => ({ content: [{ type: "text", text: JSON.stringify(await call(tool.method, args)) }] })));
       lightTools.push(
         claudeTool(

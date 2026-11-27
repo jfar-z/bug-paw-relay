@@ -8,7 +8,7 @@ import { AppError } from "../shared/contracts.js";
 import { message } from "../shared/i18n.js";
 import { backendByteLimit, backendCall, backendPort, backendResult } from "../shared/light-apps.js";
 
-const binding = z.object({ sessionId: z.uuid(), serviceId: z.uuid() }).strict();
+const binding = z.object({ sessionId: z.uuid().optional(), appId: z.uuid().optional(), serviceId: z.uuid() }).strict();
 const invocation = binding.extend({ port: backendPort, call: backendCall });
 const unavailable = () => new AppError("LIGHT_SERVICE", message("light.backend.unavailable"), 503);
 
@@ -32,13 +32,15 @@ export class LightBackend {
   async handle(method: string, params: unknown) {
     const invoke = method === "light.backend.call";
     const input = invoke ? invocation.parse(params) : { ...binding.parse(params), call: undefined, port: undefined };
+    const owner = input.appId ?? input.sessionId;
+    if (!owner || (input.appId && input.sessionId)) throw unavailable();
     if (this.active >= 8) throw new AppError("LIGHT_BUSY", message("light.backend.busy"), 429);
     this.active++;
     const agent = new Agent({ keepAlive: true, maxSockets: 1 });
     let dispatched = false;
     try {
       // 登记文件由来源环境维护；页面无法传入路径、端口或请求头。
-      const file = await open(join(this.dir, "light-services", input.sessionId, input.serviceId + ".port"), constants.O_RDONLY | constants.O_NONBLOCK);
+      const file = await open(join(this.dir, "light-services", owner, input.serviceId + ".port"), constants.O_RDONLY | constants.O_NONBLOCK);
       let port: number;
       try {
         const stat = await file.stat();

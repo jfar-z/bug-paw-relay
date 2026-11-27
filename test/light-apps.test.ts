@@ -2,6 +2,9 @@ import test from "node:test";
 import { runInNewContext } from "node:vm";
 import { storageScript } from "../src/server/light-document.js";
 import assert from "node:assert/strict";
+import { LightBackend } from "../src/connector/light-backend.js";
+import { createServer } from "node:http";
+import { once } from "node:events";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, mkdir, rm, writeFile, symlink } from "node:fs/promises";
 import { join } from "node:path";
@@ -478,6 +481,7 @@ test("发布、重试、独立服务、按版反馈和登录撤销共用真实�
     await assert.rejects(newVersion(randomUUID()), { code: "LIGHT_SERVICE" });
     const a = await newVersion(first);
     const b = await newVersion(second, a.appId);
+    const legacySingle = await newVersion(first);
     const grantFor = async (id: string) => {
       const open = await f.app.inject({method: "POST", url: "/api/light-versions/" + id + "/open", headers});
       const {ticket, action, viewId} = open.json();
@@ -500,6 +504,139 @@ test("发布、重试、独立服务、按版反馈和登录撤销共用真实�
     await action("light.unlist", a.appId);
     assert.equal((await use(a.versionId, one)).statusCode, 410);
     assert.deepEqual(targets, [first, second, first]);
+    // 升级后仍可打开两个不同旧目标，直到一次成功的应用级切换。
+    f.store.put("environments", { capabilities: [...capabilities, "light-apps-environment-v1"] }, env.id);
+    assert.equal((await action("light.relist", a.appId) as any).status, "relisted");
+    const oldView = await grantFor(a.versionId);
+    const secondOldView = await grantFor(b.versionId);
+    await use(a.versionId, oldView);
+    await use(b.versionId, secondOldView);
+    assert.deepEqual(targets.slice(-2), [first, second]);
+    const projectB = randomUUID();
+    f.store.put("sessions", {projectId: projectB, rootId: "root", relativePath: "project-b"}, other.id);
+    await mkdir(join(root, "project-b"));
+    await writeFile(join(root, "project-b/index.html"), "<p>project B</p>");
+    const fromB = (method: string, args: unknown) => agent(method, args, otherExecution) as Promise<any>;
+    const release = (args: object) => fromB("light.publish", { operationId: randomUUID(), ...args });
+    const query = (args: object) => fromB("light.versions", args);
+    for (const locale of ["zh-CN", "en"]) {
+      f.store.db.prepare("UPDATE executions SET snapshot=? WHERE id=?").run(JSON.stringify({locale}), otherExecution);
+      for (const topic of ["overview", "backend", "runtime", "debugging"]) {
+        const docs = await fromB("light.docs", { topic });
+        assert.equal(docs.sessionId, undefined);
+        assert.equal(/[一-龥]/u.test(docs.text), locale === "zh-CN");
+        if (topic === "backend") assert.match(docs.text, /registrationDirectory.*newAppId.*reuseBackend.*replacedBackends/);
+      }
+    }
+    assert.equal((await query({appId: a.appId})).apps[0].legacyBackends.length, 2);
+    await assert.rejects(release({appId: a.appId, reuseBackend: true}), {code: "LIGHT_INPUT"});
+    assert.deepEqual((await query({currentSessionOnly: true})).apps, []);
+    assert.ok((await fromB("light.feedback", {versionId: v.versionId})).feedback.length);
+    const legacyCopy = await release({appId: legacySingle.appId, reuseBackend: true});
+    const legacyCopyView = await grantFor(legacyCopy.versionId);
+    assert.equal((await use(legacyCopy.versionId, legacyCopyView)).json().status, 201);
+    assert.equal(targets.at(-1), first);
+    const readStage = {...stage, allowArtifacts: false};
+    const boardB = f.store.put("boards", {projectId: projectB, stages: [readStage]});
+    const itemB = f.store.put("items", {boardId: boardB.id, stageId: stage.id, executionId: otherExecution});
+    f.store.db.prepare("UPDATE executions SET item_id=?,snapshot=? WHERE id=?")
+      .run(itemB.id, JSON.stringify({stage: readStage}), otherExecution);
+    assert.equal((await query({appId: a.appId})).apps.length, 1);
+    for (const method of ["light.publish", "light.unlist", "light.relist", "light.switchBackend", "light.delete"])
+      await assert.rejects(fromB(method, {appId: a.appId}), {code: "LIGHT_SCOPE"});
+    f.store.db.prepare("UPDATE executions SET item_id=NULL,snapshot='{}' WHERE id=?").run(otherExecution);
+    const foreign = f.store.put("environments", {approved: true, capabilities: [...capabilities, "light-apps-environment-v1"]});
+    const foreignSession = f.store.put("sessions", {environmentId: foreign.id});
+    const foreignExecution = randomUUID();
+    const foreignPeer = {...peer};
+    f.service.peers.set(foreign.id, foreignPeer);
+    f.store.db.prepare("INSERT INTO executions VALUES(?,NULL,?,?,'running','{}',?)")
+      .run(foreignExecution, foreignSession.id, foreign.id, new Date().toISOString());
+    const outside = (method: string, args: unknown) =>
+      f.light.agent(method, foreign.id, foreignPeer, {executionId: foreignExecution, args});
+    assert.deepEqual(await outside("light.versions", {appId: a.appId}), {apps: []});
+    await assert.rejects(outside("light.feedback", {versionId: a.versionId}), {code: "LIGHT_SCOPE"});
+    for (const method of ["light.unlist", "light.relist", "light.delete"])
+      await assert.rejects(outside(method, {appId: a.appId}), {code: "LIGHT_SCOPE"});
+    await assert.rejects(outside("light.publish", {appId: a.appId, operationId: randomUUID()}), {code: "LIGHT_SCOPE"});
+    const connector = new LightBackend(dir);
+    peer.call = (method: string, input: any) => method.startsWith("light.backend.")
+      ? connector.handle(method, input) : reader.call(method, input);
+    const startInstance = async (appId: string, value: string) => {
+      const serviceId = randomUUID();
+      const server = createServer((req, res) => {
+        if (req.method === "HEAD") res.writeHead(204, {"x-bugpaw-light-service": serviceId}).end();
+        else res.end(JSON.stringify(value));
+      });
+      server.listen(0, "127.0.0.1");
+      await once(server, "listening");
+      const stop = () => new Promise<void>(resolve => server.close(() => resolve()));
+      t.after(async () => { if (server.listening) await stop(); });
+      const registration = join(dir, "light-services", appId);
+      await mkdir(registration, {recursive: true});
+      await writeFile(join(registration, serviceId + ".port"), String((server.address() as {port: number}).port));
+      return {serviceId, stop};
+    };
+    const appId = randomUUID();
+    await assert.rejects(release({newAppId: appId, title: "candidate", backendServiceId: randomUUID()}), {code: "LIGHT_SERVICE"});
+    assert.deepEqual(await query({appId}), {apps: []});
+    const original = await startInstance(appId, "S1");
+    const created = await publish({newAppId: appId, operationId: randomUUID(), backendServiceId: original.serviceId}) as typeof v;
+    f.store.db.prepare("UPDATE executions SET state='completed' WHERE id=?").run(executionId);
+    const reused = await release({appId, reuseBackend: true});
+    await release({appId, reuseBackend: true});
+    assert.equal((await query({appId, currentSessionOnly: true})).apps[0].versions.length, 2);
+    assert.equal(f.store.get("lightApps", appId).sessionId, session.id);
+    assert.equal(f.store.get("lightVersions", reused.versionId).projectId, projectB);
+    const originalView = await grantFor(created.versionId), reusedView = await grantFor(reused.versionId);
+    const read = async (id: string, view: string) => (await use(id, view)).json().body;
+    assert.equal(await read(reused.versionId, reusedView), '"S1"');
+    const count = f.store.get("lightApps", appId).number;
+    await assert.rejects(release({appId, backendServiceId: randomUUID()}), {code: "LIGHT_SERVICE"});
+    assert.equal(f.store.get("lightApps", appId).number, count);
+    assert.equal(await read(created.versionId, originalView), '"S1"');
+    const switched = await startInstance(appId, "S2");
+    const request = {operationId: randomUUID(), appId, backendServiceId: switched.serviceId};
+    const result = await release(request);
+    assert.deepEqual(await release(request), result);
+    assert.equal(result.currentBackend.serviceId, switched.serviceId);
+    assert.equal(result.replacedBackends[0].serviceId, original.serviceId);
+    await original.stop();
+    assert.equal(await read(created.versionId, originalView), '"S2"');
+    assert.equal(await read(reused.versionId, reusedView), '"S2"');
+    const restored = await startInstance(appId, "S1");
+    const beforeRestore = f.store.get("lightApps", appId).number;
+    await fromB("light.switchBackend", {appId, backendServiceId: restored.serviceId});
+    assert.equal(f.store.get("lightApps", appId).number, beforeRestore);
+    await assert.rejects(fromB("light.switchBackend", {appId, backendServiceId: switched.serviceId}), {code: "LIGHT_CONFLICT"});
+    await switched.stop();
+    assert.equal(await read(created.versionId, originalView), '"S1"');
+    assert.equal(await read(reused.versionId, reusedView), '"S1"');
+    const upgraded = await startInstance(a.appId, "legacy-upgraded");
+    const transition = await release({appId: a.appId, backendServiceId: upgraded.serviceId});
+    assert.equal(transition.replacedBackends.length, 2);
+    assert.equal(await read(a.versionId, oldView), '"legacy-upgraded"');
+    assert.equal(await read(b.versionId, secondOldView), '"legacy-upgraded"');
+    assert.equal(await read(created.versionId, originalView), '"S1"');
+
+    const hide = await fromB("light.unlist", {appId});
+    assert.equal((await decision(appId, hide.id, true)).json().status, "unlisted");
+    const staticVersion = await release({appId});
+    assert.equal(f.store.get("lightApps", appId).listed, false);
+    const show = await fromB("light.relist", {appId});
+    assert.equal(show.sessionId, other.id);
+    assert.equal((await decision(appId, show.id, true)).json().status, "relisted");
+    assert.equal((await use(staticVersion.versionId, await grantFor(staticVersion.versionId))).json().code, "LIGHT_STATIC");
+    const confirmation = () => fromB("light.delete", {appId});
+    const pending = await confirmation();
+    assert.equal(pending.sessionId, other.id);
+    assert.equal((await decision(appId, pending.id, false)).json().status, "cancelled");
+    const outdated = await confirmation();
+    f.store.db.prepare("UPDATE executions SET state='running' WHERE id=?").run(executionId);
+    await publish({operationId: randomUUID(), appId});
+    assert.equal((await decision(appId, outdated.id, true)).json().code, "LIGHT_SCOPE_CHANGED");
+    assert.equal((await decision(appId, (await confirmation()).id, true)).json().status, "deleted");
+    assert.equal((await use(created.versionId, originalView)).statusCode, 410);
     peer.call = reader.call.bind(reader);
   });
   f.service.peers.delete(env.id);

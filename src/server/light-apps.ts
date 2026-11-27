@@ -10,7 +10,7 @@ import type { Service } from "./service.js";
 import type { FileTransfers } from "./file-transfers.js";
 import { digest, token } from "./security.js";
 import {
-  backendCall, backendCapability, backendPort, backendResult,
+  environmentLightCapability, backendCall, backendCapability, backendPort, backendResult,
   lightCapability,
   lightError,
   publishRequest,
@@ -20,7 +20,7 @@ import {
   lightSandbox,
   versionsCapability,
   lifecycleCapability,
-  appTarget,
+  switchBackendInput, appTarget,
   mimeTypes,
   safeAsset,
   feedbackQuery,
@@ -31,9 +31,11 @@ export function lightVersionSummaries(
   store: Service["store"],
   appId: string,
   includeRuntimeErrors = false,
+  source?: { field: "sessionId" | "itemId"; id: string },
 ) {
   return store
     .findBy("lightVersions", "appId", appId)
+    .filter(v => !source || v[source.field] === source.id)
     .sort((a, b) => a.number - b.number)
     .map((v) => ({
       versionId: v.id,
@@ -130,7 +132,9 @@ export class LightApps {
       !env.approved ||
       env.revoked ||
       e.environment_id !== environmentId ||
+      session.archived ||
       session.environmentId !== environmentId ||
+      (session.executionId && session.executionId !== executionId) ||
       (!["running", "waiting", "dispatching"].includes(e.state) &&
         !(
           confirming &&
@@ -169,33 +173,61 @@ export class LightApps {
       .object({ executionId: z.uuid(), args: z.unknown() })
       .strict()
       .parse(raw);
-    const lifecycle = method === "light.delete" || method === "light.unlist";
+    const lifecycle = method === "light.delete" || method === "light.unlist" || method === "light.relist";
     const check = () =>
       this.source(
         environmentId,
         executionId,
         peer,
-        lifecycle || method === "light.publish" || method === "light.docs",
+        lifecycle || method === "light.switchBackend" || method === "light.publish" || method === "light.docs",
       );
     const { session, e, stagePermission } = check();
-    const hasRuntime = this.store.get("environments", environmentId).capabilities?.includes("light-apps-v4");
+    const capabilities = this.store.get("environments", environmentId).capabilities;
+    const hasRuntime = capabilities.includes("light-apps-v4");
+    const modern = capabilities.includes(environmentLightCapability);
+    const checkApp = (app: Entity) => {
+      if (app.environmentId !== environmentId) lightError("LIGHT_SCOPE", 403);
+      if (!modern && (app.sessionId !== session.id || app.itemId !== e.item_id))
+        lightError("LIGHT_SCOPE", 403);
+    };
     if (method === "light.docs") {
       if (!hasRuntime) lightError("LIGHT_UPGRADE", 409);
       const { topic } = parseLightInput(docsQuery, args);
-      const supportsBackend = this.store.get("environments", environmentId).capabilities.includes(backendCapability);
+      const supportsBackend = capabilities.includes(backendCapability);
       if (topic === "backend" && !supportsBackend) lightError("LIGHT_UPGRADE", 409);
       const locale = JSON.parse(e.snapshot).locale ?? this.service.languageSettings().locale;
       return {
         topic,
-        ...(topic === "backend" && { sessionId: session.id }),
+        ...(topic === "backend" && !modern && { sessionId: session.id }),
+        ...(!modern && topic === "overview" && { upgradeHint: translate(locale, "errors.LIGHT_UPGRADE.light") }),
         ...(topic === "overview" && supportsBackend && { backend: translate(locale, "light.backend.overview") }),
-        text: translate(locale, "light.docs." + topic, { quota: this.quota }),
+        text: translate(locale, "light.docs." + topic, { quota: this.quota, registrationPath: modern ? "registrationDirectory/<appId>" : "registrationDirectory" }) +
+          (modern && topic !== "storage" ? " " + translate(locale, "light.environment." + topic) : ""),
         ...(topic === "runtime" || topic === "debugging" ? {
           csp: lightSandbox("https://RESOURCE-HOST/v/VERSION/_files/SLOT/", this.config.mainOrigin!),
         } : {}),
         ...(topic === "debugging" ? { storageScript, example:
           `installLightStorage({ entries: [], quota: ${this.quota} }, message => parent.postMessage(message, "https://LOCAL-HOST"), "https://LOCAL-RESOURCE-HOST/v/VERSION/_files/SLOT/");` } : {}),
       };
+    }
+    if (method === "light.switchBackend") {
+      if (!modern) lightError("LIGHT_UPGRADE", 409);
+      const { appId, backendServiceId } = parseLightInput(switchBackendInput, args);
+      const targetApp = () => {
+        const app = this.store.get("lightApps", appId);
+        checkApp(app);
+        this.available(app);
+        return app;
+      };
+      targetApp();
+      const candidate = await this.probe(environmentId, peer, { appId }, backendServiceId);
+      return this.store.transaction(() => {
+        check();
+        const app = targetApp();
+        const change = this.backendChange(app, candidate);
+        this.store.put("lightApps", change.binding, appId);
+        return { appId, currentBackend: candidate, replacedBackends: change.replacedBackends };
+      });
     }
     if (lifecycle) {
       if (
@@ -206,30 +238,27 @@ export class LightApps {
         lightError("LIGHT_UPGRADE", 409);
       const { appId } = parseLightInput(appTarget, args);
       const app = this.store.get("lightApps", appId);
-      if (
-        app.sessionId !== session.id ||
-        app.environmentId !== environmentId ||
-        app.itemId !== e.item_id
-      )
-        lightError("LIGHT_SCOPE", 403);
+      checkApp(app);
+      if (method === "light.relist" && !modern) lightError("LIGHT_UPGRADE", 409);
       if (method === "light.delete" && app.deletion)
         return app.deletion === "deleted"
           ? { status: "alreadyDeleted", appId }
           : this.purge(app);
       this.available(app);
-      if (method === "light.unlist") {
-        if (!app.listed) return { status: "alreadyUnlisted", appId };
+      if (method !== "light.delete") {
+        const listed = method === "light.relist";
+        if (app.listed === listed) return { status: listed ? "alreadyListed" : "alreadyUnlisted", appId };
         const snapshot = JSON.parse(e.snapshot);
         if (
           session.permission === "full" &&
           (snapshot.permission ?? snapshot.stage?.permission) === "full" &&
           (!e.item_id || stagePermission === "full")
         )
-          return this.unlist(app);
+          return this.listing(app, listed);
       }
       return this.prepare(
         app,
-        method === "light.delete" ? "delete" : "unlist",
+        method === "light.delete" ? "delete" : method === "light.relist" ? "relist" : "unlist",
         executionId,
       );
     }
@@ -257,34 +286,33 @@ export class LightApps {
         )
           return null;
         this.available(this.store.get("lightApps", version.appId));
-        return {
-          appId: version.appId,
-          versionId: version.id,
-          number: version.number,
-          hasBackend: !!version.backend,
-        };
+        return this.publishResult(version);
       }
-      const { appId } = parseLightInput(versionsQuery, args);
+      const { appId, currentSessionOnly } = parseLightInput(versionsQuery, args);
       const apps = this.store
-        .findBy("lightApps", "sessionId", session.id)
+        .findBy("lightApps", modern ? "environmentId" : "sessionId", modern ? environmentId : session.id)
         .filter(
           (app) =>
             !app.deletion &&
             app.environmentId === environmentId &&
             (!appId || app.id === appId),
         )
-        .map((app) => ({
-          appId: app.id,
-          title: app.title,
-          listed: app.listed,
-          versions: lightVersionSummaries(this.store, app.id, hasRuntime),
-        }));
+        .map((app) => {
+          const legacyBackends = modern && !app.currentBackend ? this.legacyBackends(app) : undefined;
+          return {
+            appId: app.id, title: app.title, listed: app.listed,
+            ...(modern && { currentBackend: app.currentBackend ?? (legacyBackends?.length === 1 ? legacyBackends[0] : null) }),
+            ...(legacyBackends && { legacyBackends }),
+            versions: lightVersionSummaries(this.store, app.id, hasRuntime,
+              currentSessionOnly ? { field: "sessionId", id: session.id } : undefined),
+          };
+        }).filter(app => app.versions.length);
       return { apps };
     }
     if (method === "light.feedback") {
       const { versionId } = parseLightInput(feedbackQuery, args);
       const v = this.store.get("lightVersions", versionId);
-      if (v.sessionId !== session.id || v.environmentId !== environmentId)
+      if ((!modern && v.sessionId !== session.id) || v.environmentId !== environmentId)
         lightError("LIGHT_SCOPE", 403);
       this.available(this.store.get("lightApps", v.appId));
       return { feedback: this.feedback(versionId), ...(hasRuntime ? { runtimeErrors: this.errors(versionId) } : {}) };
@@ -295,13 +323,11 @@ export class LightApps {
     const priorApp = () =>
       p.appId ? this.store.get("lightApps", p.appId) : undefined;
     const existing = priorApp();
-    if (
-      existing &&
-      (existing.sessionId !== session.id ||
-        existing.environmentId !== environmentId ||
-        existing.itemId !== e.item_id)
-    )
-      lightError("LIGHT_SCOPE", 403);
+    if (existing) checkApp(existing);
+    if ((p.newAppId || p.reuseBackend) && !modern) lightError("LIGHT_UPGRADE", 409);
+    if ((p.newAppId && p.appId) || (p.reuseBackend && (!existing || p.backendServiceId)) ||
+        (modern && p.backendServiceId && !p.appId && !p.newAppId))
+      throw new AppError("LIGHT_INPUT", message("light.backend.options"));
     if (existing) this.available(existing);
     const fingerprint = digest(JSON.stringify([executionId, p]));
     const replay = () => {
@@ -314,11 +340,17 @@ export class LightApps {
         this.available(this.store.get("lightApps", v.appId));
       if (v && v.fingerprint !== fingerprint) lightError("LIGHT_CONFLICT", 409);
       return v
-        ? { appId: v.appId, versionId: v.id, number: v.number, hasBackend: !!v.backend }
+        ? this.publishResult(v)
         : undefined;
     };
     const prior = replay();
     if (prior) return prior;
+    if (p.reuseBackend && !this.reusableBackend(existing!)) throw new AppError("LIGHT_INPUT", message("light.backend.noCurrent"));
+    const checkNewId = () => {
+      if (p.newAppId && this.store.findBy("lightApps", "id", p.newAppId).length)
+        lightError("LIGHT_CONFLICT", 409);
+    };
+    checkNewId();
     if (
       p.directory !== "." &&
       !p.directory
@@ -396,18 +428,13 @@ export class LightApps {
         this.files.cancel(executionId, ticket.id);
       }
     }
-    let backend: { serviceId: string; port: number } | undefined;
+    const appId = existing?.id ?? p.newAppId ?? randomUUID();
+    let candidate: { serviceId: string; port: number; appId?: string } | undefined;
     if (p.backendServiceId) {
       check();
-      if (!this.store.get("environments", environmentId).capabilities.includes(backendCapability))
-        lightError("LIGHT_UPGRADE", 409);
-      const { port } = z.object({ port: backendPort }).parse(await peer.call("light.backend.probe", {
-        sessionId: session.id, serviceId: p.backendServiceId,
-      }, 10000));
-      backend = { serviceId: p.backendServiceId, port };
+      candidate = await this.probe(environmentId, peer, modern ? { appId } : { sessionId: session.id }, p.backendServiceId);
     }
     const versionId = randomUUID();
-    const appId = existing?.id ?? randomUUID();
     await this.host("/internal/versions/" + versionId, { assets, appId });
     return this.store.transaction(() => {
       check();
@@ -415,6 +442,12 @@ export class LightApps {
       if (previous) return previous;
       const app = priorApp();
       if (app) this.available(app);
+      checkNewId();
+      // 复用和切换以事务内的最新绑定为准，探测或托管失败不会改动生效目标。
+      const backend = p.reuseBackend && app ? this.reusableBackend(app) : candidate;
+      if (p.reuseBackend && !backend) throw new AppError("LIGHT_INPUT", message("light.backend.noCurrent"));
+      if (!modern && candidate && app?.currentBackend) lightError("LIGHT_UPGRADE", 409);
+      const change = modern && candidate ? this.backendChange(app, candidate) : undefined;
       const number = (app?.number || 0) + 1;
       const source = {
         sessionId: session.id,
@@ -434,13 +467,15 @@ export class LightApps {
           title: p.title ?? app?.title,
           entry: p.entry,
           ...(backend && { backend }),
+          ...(change && { replacedBackends: change.replacedBackends }),
         },
         versionId,
       );
       this.store.put(
         "lightApps",
         {
-          ...source,
+          ...(!app && source),
+          ...change?.binding,
           title: p.title ?? app?.title,
           number,
           latestVersionId: v.id,
@@ -449,28 +484,69 @@ export class LightApps {
         },
         appId,
       );
-      return { appId, versionId, number, hasBackend: !!backend };
+      return this.publishResult(v);
     });
   }
   private available(app: Entity) {
     if (app.deletion) lightError("LIGHT_DELETED", 410);
   }
-  private unlist(app: Entity) {
+  private async probe(environmentId: string, peer: RpcPeer, owner: { appId?: string; sessionId?: string }, serviceId: string) {
+    if (!this.store.get("environments", environmentId).capabilities.includes(backendCapability))
+      lightError("LIGHT_UPGRADE", 409);
+    const { port } = z.object({ port: backendPort }).parse(await peer.call("light.backend.probe", { ...owner, serviceId }, 10000));
+    return { serviceId, port, ...(owner.appId && { appId: owner.appId }) };
+  }
+  /** 发布和独立切换共用同一事务规则；退役实例不再启用，避免清理误停。 */
+  private backendChange(app: Entity | undefined, candidate: { serviceId: string; port: number; appId?: string }) {
+    const current = app?.currentBackend;
+    const retired: string[] = app?.retiredBackendIds ?? [];
+    if (retired.includes(candidate.serviceId) || (current?.serviceId === candidate.serviceId && current.port !== candidate.port))
+      lightError("LIGHT_CONFLICT", 409);
+    const previous = current ? [current] : app ? this.legacyBackends(app) : [];
+    const replacedBackends = previous.filter(target => target.serviceId !== candidate.serviceId || target.port !== candidate.port);
+    return {
+      replacedBackends,
+      binding: { currentBackend: candidate,
+        ...(current && current.serviceId !== candidate.serviceId && { retiredBackendIds: [...retired, current.serviceId] }),
+      },
+    };
+  }
+  private publishResult(v: Entity) {
+    return { appId: v.appId, versionId: v.id, number: v.number, hasBackend: !!v.backend,
+      ...(v.replacedBackends && { currentBackend: this.store.get("lightApps", v.appId).currentBackend, replacedBackends: v.replacedBackends }),
+    };
+  }
+  /** 旧应用仅有唯一后端时可直接复用；多绑定应用须显式选择候选。 */
+  private reusableBackend(app: Entity) {
+    if (app.currentBackend) return app.currentBackend;
+    const targets = this.legacyBackends(app);
+    return targets.length === 1 ? targets[0] : undefined;
+  }
+  private legacyBackends(app: Entity) {
+    const targets = new Map<string, { sessionId: string; serviceId: string; port: number }>();
+    for (const version of this.store.findBy("lightVersions", "appId", app.id)) {
+      if (!version.backend) continue;
+      const target = { sessionId: version.sessionId, ...version.backend };
+      targets.set(JSON.stringify([target.sessionId, target.serviceId, target.port]), target);
+    }
+    return [...targets.values()];
+  }
+  private listing(app: Entity, listed: boolean) {
     this.available(app);
-    if (app.listed)
+    if (app.listed !== listed)
       this.store.put(
         "lightApps",
-        { listed: false, epoch: app.epoch + 1 },
+        { listed, epoch: app.epoch + 1 },
         app.id,
       );
     return {
-      status: app.listed ? "unlisted" : "alreadyUnlisted",
+      status: listed ? (app.listed ? "alreadyListed" : "relisted") : (app.listed ? "unlisted" : "alreadyUnlisted"),
       appId: app.id,
     };
   }
   private prepare(
     app: Entity,
-    action: "delete" | "unlist",
+    action: "delete" | "unlist" | "relist",
     executionId?: string,
   ) {
     const same = this.store
@@ -487,13 +563,13 @@ export class LightApps {
       action,
       appId: app.id,
       title: app.title,
-      sessionId: app.sessionId,
+      sessionId: executionId ? this.service.execution(executionId).session_id : app.sessionId,
       executionId,
       latestVersionId: app.latestVersionId,
       versionCount: app.number,
     });
     if (executionId)
-      this.service.sessionEvents.emit(app.sessionId, {
+      this.service.sessionEvents.emit(confirmation.sessionId, {
         type: "light-confirmation",
         appId: app.id,
       });
@@ -665,7 +741,8 @@ export class LightApps {
         .filter(
           (a) => a.deletion !== "deleted" && a.listed === (listed === "true"),
         )
-        .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
+        .sort((a, b) => b.publishedAt.localeCompare(a.publishedAt))
+        .map(({ currentBackend, retiredBackendIds, ...summary }) => summary);
     });
     app.get("/api/light-versions", async (req) => {
       const q = z
@@ -679,7 +756,7 @@ export class LightApps {
       return this.store
         .list("lightVersions")
         .filter((v) => Object.entries(q).every(([k, val]) => v[k] === val))
-        .map(({ fingerprint, operationId, backend, ...v }) => {
+        .map(({ fingerprint, operationId, backend, replacedBackends, ...v }) => {
           const app = this.store.get("lightApps", v.appId);
           if (app.deletion) {
             const {
@@ -742,14 +819,14 @@ export class LightApps {
       if (c.executionId) {
         const peer = this.service.peers.get(app.environmentId);
         if (!peer) lightError("LIGHT_SCOPE", 403);
-        const { session, e } = this.source(
+        const { session } = this.source(
           app.environmentId,
           c.executionId,
           peer,
           true,
           true,
         );
-        if (session.id !== app.sessionId || e.item_id !== app.itemId)
+        if (session.id !== c.sessionId)
           lightError("LIGHT_SCOPE", 403);
       }
       // 版本只追加，末版 UUID 唯一标识确认时包含的完整版本集合。
@@ -758,9 +835,9 @@ export class LightApps {
         if (c.executionId) this.prepare(app, c.action, c.executionId);
         lightError("LIGHT_SCOPE_CHANGED", 409);
       }
-      if (c.action === "unlist") {
+      if (c.action === "unlist" || c.action === "relist") {
         this.store.remove("lightConfirmations", c.id);
-        return this.unlist(app);
+        return this.listing(app, c.action === "relist");
       }
       return this.purge(app);
     });
@@ -821,19 +898,22 @@ export class LightApps {
       const { viewId, call } = parseLightInput(runtimeBody.extend({ call: backendCall }).strict(), req.body);
       this.checkView(id, viewId, req.cookies.relay_session!);
       const version = this.store.get("lightVersions", id);
-      this.available(this.store.get("lightApps", version.appId));
+      const app = this.store.get("lightApps", version.appId);
+      this.available(app);
       if (!version.backend) throw new AppError("LIGHT_STATIC", message("light.backend.static"), 409);
       const env = this.store.get("environments", version.environmentId);
       if (!env.approved || env.revoked) lightError("LIGHT_SCOPE", 403);
       const peer = this.service.peers.get(env.id);
       if (!peer) throw new AppError("OFFLINE", message("light.backend.offline"), 503);
       if (!env.capabilities?.includes(backendCapability)) lightError("LIGHT_UPGRADE", 409);
+      const target = app.currentBackend ?? { sessionId: version.sessionId, ...version.backend };
+      if (target.appId && !env.capabilities.includes(environmentLightCapability)) lightError("LIGHT_UPGRADE", 409);
       const active = this.backendPending.get(env.id) ?? 0;
       if (active >= 8) throw new AppError("LIGHT_BUSY", message("light.backend.busy"), 429);
       this.backendPending.set(env.id, active + 1);
       try {
         const result = await peer.call("light.backend.call", {
-          ...version.backend, sessionId: version.sessionId, call,
+          ...target, call,
         }, 10000);
         return backendResult.parse(result);
       } catch (error) {

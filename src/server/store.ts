@@ -127,7 +127,7 @@ export class Store {
   /** 按受控字段在数据库内过滤，避免读取无关会话正文。 */
   findBy(
     kind: string,
-    field: "id" | "sessionId" | "operationId" | "status" | "appId" | "versionId" | "itemId" | "boardId" | "executionId",
+    field: "environmentId" | "id" | "sessionId" | "operationId" | "status" | "appId" | "versionId" | "itemId" | "boardId" | "executionId",
     value: string,
   ): Entity[] {
     const expression =
