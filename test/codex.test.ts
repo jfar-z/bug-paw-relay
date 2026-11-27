@@ -299,7 +299,7 @@ for (const mode of [
               approvedItemId = params.itemId;
               const policy = classifyApproval(method, params);
               assert.ok(policy);
-              void answer(mode === "approval-auto" ? policy.answer : { decision: "accept" });
+              void Promise.resolve(answer(mode === "approval-auto" ? policy.answer : { decision: "accept" })).then(() => receipts++);
             }
           },
           done: (status) => (finalStatus = status),
@@ -476,6 +476,7 @@ for (const mode of [
         const history = await runtime.history();
         if (approval) {
           assert.ok(approvedItemId);
+          assert.equal(receipts, 1);
           assert.ok(history.thread.turns.some((turn: any) => turn.items.some((item: any) =>
             item.id === approvedItemId && item.type === "commandExecution")));
           assert.ok(events.some(e => e.data.item?.id === approvedItemId &&

@@ -1,3 +1,5 @@
+import { isDeepStrictEqual } from "node:util";
+import { nativeForm } from "./native-form.js";
 import { displayBoardHistory } from "../shared/session-events.js";
 import { type BoardTool } from "../shared/session-boards.js";
 import { commandChange, commandScope, slashInput } from "../shared/slash-commands.js";
@@ -899,6 +901,7 @@ export class Engine {
         return {
           status: e.status === "starting" ? "dispatching" : e.status,
           stateVersion: e.stateVersion || 0,
+          ...(p.includeInteractions && e.status === "waiting" ? { interactions: e.interactions } : {}),
         };
       } catch (error) {
         if (!(error instanceof AppError) || error.code !== "NOT_FOUND")
@@ -1121,27 +1124,41 @@ export class Engine {
       if (record) return this.answerQuestion(e, record, p.answer);
       const item = e.interactions.find((i: any) => i.id === p.interactionId);
       ensure(
-        item && this.answers.has(p.interactionId),
+        item && ["starting", "waiting", "running"].includes(e.status) && this.answers.has(p.interactionId),
         "STALE_INTERACTION",
         i18nMessage(
           "errors.STALE_INTERACTION.the.native.interaction.has.expired",
         ),
         409,
       );
-      this.validateAnswer(item, p.answer);
+      const nativeAnswer = this.nativeAnswer(item, p.answer, p.decisionSource === "policy");
       const answer = this.answers.get(p.interactionId)!;
       this.answers.delete(p.interactionId);
-      this.store.put(
-        "localExecutions",
-        {
-          interactions: e.interactions.filter(
-            (i: any) => i.id !== p.interactionId,
-          ),
-        },
-        e.id,
-      );
       try {
-        await answer(p.answer);
+        await answer(nativeAnswer);
+      } catch (error) {
+        // 回调已消费，送达情况不能确认。保留真实待处理状态，只允许停止。
+        const current = this.store.get("localExecutions", e.id);
+        this.store.put("localExecutions", {
+          interactions: current.interactions.map((i: any) =>
+            i.id === item.id ? { ...i, delivery: "unconfirmed" } : i),
+        }, e.id);
+        if (!["cancelled", "stopping"].includes(current.status)) {
+          this.enqueueEvent(e.id, e.sessionId, "relay/interaction/unconfirmed", {
+            interactionId: item.id,
+            method: item.method,
+            source: p.decisionSource === "policy" ? "policy" : "user",
+          });
+          this.flushEvents(e.id);
+          if (current.interactions.some((i: any) => i.id === item.id)) this.state(e.id, "waiting");
+        }
+        throw error;
+      }
+      const current = this.store.get("localExecutions", e.id);
+      this.store.put("localExecutions", {
+        interactions: current.interactions.filter((i: any) => i.id !== item.id),
+      }, e.id);
+      try {
         if (p.decisionSource === "policy" && item.approval?.kind === "permission") {
           const { itemId, turnId } = item.params || {};
           this.enqueueEvent(e.id, e.sessionId, "relay/approval/auto", {
@@ -1153,7 +1170,7 @@ export class Engine {
           });
         }
       } finally {
-        this.state(e.id, "running");
+        if (current.status !== "stopping") this.state(e.id, "running");
       }
       return { ok: true };
     }
@@ -1287,49 +1304,22 @@ export class Engine {
     });
     return { ok: result.status === "answered", record: result };
   }
-  private validateAnswer(item: any, a: any) {
-    ensure(
-      a && typeof a === "object",
-      "INVALID_ANSWER",
-      i18nMessage("errors.INVALID_ANSWER.invalid.answer.format"),
-    );
-    if (
-      item.method.includes("commandExecution/requestApproval") ||
-      item.method.includes("fileChange/requestApproval")
-    )
-      ensure(
-        ["accept", "decline", "cancel"].includes(a.decision),
-        "INVALID_ANSWER",
-        i18nMessage("errors.INVALID_ANSWER.invalid.approval.decision"),
-      );
-    else if (item.method.includes("requestUserInput"))
-      ensure(
-        a.answers && typeof a.answers === "object",
-        "INVALID_ANSWER",
-        i18nMessage("errors.INVALID_ANSWER.an.answer.is.missing"),
-      );
-    else if (item.method === "item/permissions/requestApproval")
-      ensure(
-        a.permissions && a.scope !== "session",
-        "INVALID_ANSWER",
-        i18nMessage(
-          "errors.INVALID_ANSWER.only.a.permission.response.for.this",
-        ),
-      );
-    else if (item.method === "mcpServer/elicitation/request")
-      ensure(
-        ["accept", "decline", "cancel"].includes(a.action),
-        "INVALID_ANSWER",
-        i18nMessage("errors.INVALID_ANSWER.invalid.interaction.decision"),
-      );
-    else
-      ensure(
-        typeof a.approve === "boolean",
-        "INVALID_ANSWER",
-        i18nMessage(
-          "errors.INVALID_ANSWER.explicit.approval.or.rejection.is.required",
-        ),
-      );
+  /** 以本地原始请求生成答复，兼容旧页面发送的等价原生决定。 */
+  private nativeAnswer(item: any, value: any, policy: boolean) {
+    const approval = classifyApproval(item.method, item.params, item.runtime);
+    const invalid = i18nMessage("errors.INVALID_ANSWER.invalid.interaction.decision");
+    if (approval) {
+      if (isDeepStrictEqual(value, { allow: true }) || isDeepStrictEqual(value, approval.answer))
+        return approval.answer;
+      if (!policy && (isDeepStrictEqual(value, { allow: false }) || isDeepStrictEqual(value, approval.decline)))
+        return approval.decline;
+      throw new AppError("INVALID_ANSWER", invalid);
+    }
+    const form = item.runtime !== "claude" && nativeForm(item.method, item.params);
+    ensure(!policy && form, "UNSUPPORTED_QUESTION", i18nMessage("questions.unsupported"), 409);
+    if (isDeepStrictEqual(value, { action: "decline" })) return value;
+    ensure(value?.action === "accept" && form.validate(value.content).valid, "INVALID_ANSWER", invalid);
+    return { action: "accept", content: value.content };
   }
   private state(id: string, status: string) {
     this.flushEvents(id);
@@ -1689,7 +1679,8 @@ export class Engine {
             return;
           const id = randomUUID();
           const form = questionForm(method, params);
-          const approval = form ? null : classifyApproval(method, params);
+          const approval = form ? null : classifyApproval(method, params, local.runtime);
+          const elicitation = local.runtime === "codex" && !form && !approval && nativeForm(method, params);
           // 同步 Codex 的 nativeId 是 RPC 请求号，原生消息定位需读取 itemId。
           const questionItemId =
             method === "item/tool/requestUserInput" ? params?.itemId : nativeId;
@@ -1702,10 +1693,12 @@ export class Engine {
                 {
                   id,
                   nativeId,
+                  runtime: local.runtime,
                   executionId: e.id,
                   method,
                   params,
                   ...(approval ? { approval } : {}),
+                  ...(elicitation ? { formSchema: elicitation.schema } : {}),
                   ...(form ? { question: form } : {}),
                 },
               ],

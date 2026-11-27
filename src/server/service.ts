@@ -235,14 +235,26 @@ export class Service {
       ...(terminal ? { terminalHistory: sameRun && current.executionId && session.status === current.status &&
         ["completed", "failed", "cancelled"].includes(history.status)
         ? terminalHistoryState(history, current.executionId, current.runtime) : "pending" } : {}),
-      ...(!sameRun || terminal ? { interactions: [] } : {}),
+      ...(!sameRun || terminal || current.status === "stopping" ? { interactions: [] } :
+        history.interactions ? { interactions: sessionDisplay(this.visibleApprovals(current.executionId, history.interactions)) } : {}),
       status: current.status,
     };
   }
 
   /** 已发出自动批准的交互，同一请求只发送一次决定。 */
   private autoApproved = new Map<string, Set<string>>();
-  private manualApprovals = new Map<string, Set<string>>();
+  private pendingApprovals = new Map<string, { latest: any[]; unconfirmed: Set<string> }>();
+
+  /** 历史与实时卡片使用相同的送达状态，仅原生成功回调产生批准活动。 */
+  private visibleApprovals(id: string, items: any[]) {
+    const unconfirmed = this.pendingApprovals.get(id)?.unconfirmed;
+    const decided = this.autoApproved.get(id);
+    return items.flatMap(item => {
+      if (item.delivery === "unconfirmed" || unconfirmed?.has(item.id))
+        return [{ ...item, delivery: "unconfirmed" }];
+      return decided?.has(item.id) ? [] : [item];
+    });
+  }
   /**
    * 自动审批执行下，连接器明确标注为工具权限审批的交互由服务端批准一次，
    * 并从发给浏览器的待处理列表中剔除；其余交互原样保留。
@@ -254,10 +266,11 @@ export class Service {
     if (!peer) return interactions;
     const decided = this.autoApproved.get(execution.id) ?? new Set<string>();
     this.autoApproved.set(execution.id, decided);
-    const remaining: any[] = [];
+    const pending = this.pendingApprovals.get(execution.id) ?? { latest: [], unconfirmed: new Set<string>() };
+    pending.latest = interactions;
+    this.pendingApprovals.set(execution.id, pending);
     for (const item of interactions) {
-      if (this.manualApprovals.get(execution.id)?.has(item.id) || item.executionId !== execution.id || item.question || item.approval?.kind !== "permission") {
-        remaining.push(item);
+      if (item.delivery === "unconfirmed" || item.executionId !== execution.id || item.question || item.approval?.kind !== "permission") {
         continue;
       }
       if (decided.has(item.id)) continue;
@@ -266,26 +279,22 @@ export class Service {
         .call("interaction.answer", {
           executionId: execution.id,
           interactionId: item.id,
-          answer: item.approval.answer,
+          // 新连接器按本地权威参数组装回参；旧连接器沿用原生答案。
+          answer: item.approval.decline ? { allow: true } : item.approval.answer,
           decisionSource: "policy",
         })
         .catch((error: any) => {
-          // 请求已过期或被处理则无需恢复；其他送达失败恢复为待人工处理。
-          if (error?.code === "STALE_INTERACTION") return;
-          if (this.autoApproved.get(execution.id) !== decided) return;
-          const current = this.store.findBy("sessions", "executionId", execution.id)[0];
-          if (!current || current.status !== "waiting") return;
-          const manual = this.manualApprovals.get(execution.id) ?? new Set<string>();
-          manual.add(item.id);
-          this.manualApprovals.set(execution.id, manual);
+          if (error?.code === "STALE_INTERACTION" || this.pendingApprovals.get(execution.id) !== pending) return;
+          if (!pending.latest.some(i => i.id === item.id)) return;
+          pending.unconfirmed.add(item.id);
           this.sessionEvents.emit(execution.session_id, {
             type: "update",
             executionId: execution.id,
-            interactions: interactions.filter(i => !decided.has(i.id) || manual.has(i.id)),
+            interactions: sessionDisplay(this.visibleApprovals(execution.id, pending.latest)),
           });
         });
     }
-    return remaining;
+    return this.visibleApprovals(execution.id, interactions);
   }
 
   /** 校验节点归属后转发增量；删除后到达的通知不能恢复会话。 */
@@ -305,12 +314,13 @@ export class Service {
     const session = this.store.get("sessions", execution.session_id);
     if (session.executionId === execution.id) this.syncSessionTitle(session.id, data.title);
     // 旧连接器也在服务端投影后再发给浏览器，升级前避免图片进入 SSE。
-    const { status, interactions: all, ...rest } = sessionDisplay(data);
+    const { status, interactions: all, ...raw } = data;
+    const rest = sessionDisplay(raw);
     const currentUpdate = session.executionId === execution.id && stateAccepted;
     let interactions = all;
     if (currentUpdate && all) {
-      interactions = ["completed", "failed", "cancelled"].includes(session.status)
-        ? [] : this.autoApprove(execution, all);
+      interactions = ["completed", "failed", "cancelled", "stopping"].includes(session.status)
+        ? [] : sessionDisplay(this.autoApprove(execution, all));
     }
     this.sessionEvents.emit(execution.session_id, {
       ...rest,
@@ -2228,9 +2238,9 @@ export class Service {
       .list("sessions")
       .find((s) => s.id === e.session_id);
     if (!session) return;
-    if (["completed", "cancelled", "failed"].includes(state)) {
+    if (["completed", "cancelled", "failed", "stopping"].includes(state)) {
       this.autoApproved.delete(id);
-      this.manualApprovals.delete(id);
+      this.pendingApprovals.delete(id);
     }
     if (["completed", "cancelled", "failed"].includes(e.state)) {
       this.stateAudit(e, e.state, state, "terminal_ignored");
@@ -2800,12 +2810,18 @@ export class Service {
   async reconcile(environmentId: string, peer: RpcPeer) {
     const all = this.reconciliationExecutions(environmentId);
     for (const e of all) {
-      const result = await peer.call("execution.status", { executionId: e.id });
+      const result = await peer.call("execution.status", { executionId: e.id, includeInteractions: true });
       this.setState(
         e.id,
         result.status === "not_found" ? "unknown" : result.status,
         result.stateVersion,
       );
+      // 等待期间断连可能漏掉首次通知；同一版本对账也须处理仍有效的交互。
+      if (result.status === "waiting" && Array.isArray(result.interactions)) {
+        const current = this.execution(e.id);
+        if (current.state === "waiting" && JSON.parse(current.snapshot).stateVersion === result.stateVersion)
+          this.sessionEvent(environmentId, { executionId: e.id, interactions: result.interactions });
+      }
     }
   }
 }

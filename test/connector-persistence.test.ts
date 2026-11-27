@@ -4,6 +4,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Store } from "../src/server/store.js";
+import { Service } from "../src/server/service.js";
+import { Vault } from "../src/server/security.js";
+import { classifyApproval } from "../src/shared/permission-policy.js";
 import { ConnectorStore } from "../src/connector/store.js";
 import { Engine } from "../src/connector/engine.js";
 import { ConnectorConfig } from "../src/connector/config.js";
@@ -81,6 +84,13 @@ test("自动批准按原生调用编号落账，缓存淘汰、重复答复与�
     });
     for (const id of ["second", "first", "again", "manual", "legacy"]) await answer(id);
     await assert.rejects(answer("failed"), /delivery failed/);
+    assert.deepEqual(f.seen.find(update => update.event?.type === "relay/interaction/unconfirmed")?.event.data, {
+      interactionId: "failed", method: "item/commandExecution/requestApproval", source: "policy",
+    });
+    const failed = f.store.get("localExecutions", "one");
+    assert.equal(failed.status, "waiting");
+    assert.equal(failed.interactions[0].delivery, "unconfirmed");
+    await assert.rejects(answer("failed"), { code: "STALE_INTERACTION" });
     await assert.rejects(answer("first"), (error: any) => error.code === "STALE_INTERACTION");
     const live = f.seen.map(update => update.event).filter(event => event?.type === "relay/approval/auto");
     assert.deepEqual(live.map(e => [e.data.interactionId, e.data.itemId]), [
@@ -393,6 +403,85 @@ test("更新忙碌检查不加载历史正文，并持续识别活动和未知�
     f.engine.storageFault();
     assert.equal(f.engine.busyForUpdate(), true);
   } finally {
+    f.close();
+  }
+});
+
+test("连接器按原请求组装审批和业务答案，未知交互与停止后的答复失效", async () => {
+  const f = fixture();
+  const permissions = { fileSystem: { read: ["/docs"] } };
+  const fields = { name: { type: "string", enum: ["A", "B"] }, count: { type: "integer", minimum: 1 } };
+  const params = { mode: "form", message: "Choose", requestedSchema: {
+    type: "object", properties: fields, required: ["name", "count"],
+  } };
+  const items = [
+    { id: "allow", method: "item/permissions/requestApproval", params: { permissions } },
+    { id: "deny", method: "item/permissions/requestApproval", params: { permissions } },
+    { id: "form", method: "mcpServer/elicitation/request", params },
+    { id: "unknown", method: "future/interaction", params: {} },
+    { id: "cancel", method: "item/fileChange/requestApproval", params: {} },
+  ];
+  const replies: any[] = [];
+  try {
+    f.store.put("localExecutions", { interactions: items, status: "waiting" }, "one");
+    for (const i of items) (f.engine as any).answers.set(i.id, (v: any) => { replies.push(v); });
+    const answer = (id: string, value: any) => f.engine.call("interaction.answer", { executionId: "one", interactionId: id, answer: value });
+    await assert.rejects(answer("allow", { permissions: { network: { enabled: true } }, scope: "turn" }), { code: "INVALID_ANSWER" });
+    await answer("allow", { allow: true });
+    await answer("deny", { allow: false });
+    await assert.rejects(answer("form", { action: "accept", content: { name: "C", count: 0 } }), { code: "INVALID_ANSWER" });
+    await answer("form", { action: "accept", content: { name: "B", count: 2 } });
+    await assert.rejects(answer("unknown", { approve: true }), { code: "UNSUPPORTED_QUESTION" });
+    (f.engine as any).handles.set("one", { cancel() {}, close() {} });
+    await f.engine.call("execution.cancel", { executionId: "one" });
+    await assert.rejects(answer("cancel", { allow: true }), { code: "STALE_INTERACTION" });
+    (f.engine as any).state("one", "cancelled");
+    await assert.rejects(answer("cancel", { allow: false }), { code: "STALE_INTERACTION" });
+    assert.deepEqual(replies, [{ permissions, scope: "turn" }, { permissions: {}, scope: "turn" }, { action: "accept", content: { name: "B", count: 2 } }]);
+  } finally { f.close(); }
+});
+
+test("无页面订阅时对账仍按快照审批，传输错误在历史中保留未确认状态", async () => {
+  const f = fixture();
+  const store = new Store(":memory:");
+  const service = new Service(store, new Vault(f.dir));
+  const env = store.put("environments", { name: "fixture" });
+  const id = "one";
+  const session = store.put("sessions", { environmentId: env.id, executionId: id, status: "waiting" }, "s-one");
+  store.db.prepare("INSERT INTO executions VALUES(?,?,?,?,?,?,?)")
+    .run(id, null, session.id, env.id, "waiting", JSON.stringify({ permission: "auto", stateVersion: 1 }), new Date().toISOString());
+  const permissions = { fileSystem: { read: ["/workspace/" + "A".repeat(1400)] } };
+  const items = [
+    ["command", "item/commandExecution/requestApproval", { command: "pwd" }],
+    ["file", "item/fileChange/requestApproval", { reason: "edit" }],
+    ["profile", "item/permissions/requestApproval", { permissions }],
+    ["lost", "item/fileChange/requestApproval", {}],
+    ["question", "item/tool/requestUserInput", {}],
+  ].map(([key, method, params]) => ({
+    id: String(key), executionId: id, method: String(method), params, approval: classifyApproval(String(method), params),
+  }));
+  const replies: Record<string, unknown> = {};
+  const sent: Promise<any>[] = [];
+  const peer = { call: (method: string, p: any) => {
+    if (method !== "interaction.answer") return f.engine.call(method, p);
+    const result = p.interactionId === "lost" ? Promise.reject(new Error("offline")) : f.engine.call(method, p);
+    sent.push(result);
+    return result;
+  } } as any;
+  try {
+    f.store.put("localExecutions", { interactions: items, status: "waiting" }, id);
+    for (const i of items) (f.engine as any).answers.set(i.id, (value: any) => { replies[i.id] = value; });
+    service.peers.set(env.id, peer);
+    await service.reconcile(env.id, peer);
+    await Promise.allSettled(sent);
+    await service.reconcile(env.id, peer);
+    assert.equal(sent.length, 4);
+    assert.deepEqual(replies, { command: { decision: "accept" }, file: { decision: "accept" }, profile: { permissions, scope: "turn" } });
+    const history = await service.sessionHistory(session.id);
+    assert.deepEqual(history.interactions.map((i: any) => [i.id, i.delivery]), [["lost", "unconfirmed"], ["question", undefined]]);
+    assert.deepEqual(history.autoApprovalEvents.map((e: any) => e.data.interactionId).sort(), ["command", "file", "profile"]);
+  } finally {
+    store.close();
     f.close();
   }
 });

@@ -118,7 +118,7 @@ export class CodexRuntime implements RuntimeHandle {
       timer: NodeJS.Timeout;
     }
   >();
-  private questionReceipts = new Map<
+  private requestReceipts = new Map<
     string,
     { resolve: () => void; reject: (e: Error) => void }
   >();
@@ -192,9 +192,9 @@ export class CodexRuntime implements RuntimeHandle {
   private exit() {
     this.resumedBoardTools?.close();
     this.resumedTools?.close();
-    for (const receipt of this.questionReceipts.values())
+    for (const receipt of this.requestReceipts.values())
       receipt.reject(new Error("RUNTIME_EXIT"));
-    this.questionReceipts.clear();
+    this.requestReceipts.clear();
     for (const p of this.pending.values()) {
       clearTimeout(p.timer);
       p.reject(
@@ -313,21 +313,14 @@ export class CodexRuntime implements RuntimeHandle {
           return;
         }
         this.hooks.interaction(String(m.id), m.method, m.params, (value) => {
-          if (m.method !== "item/tool/requestUserInput") {
-            // 管道写入失败时让调用方收到错误，避免留下成功审批记录。
-            return new Promise<void>((resolve, reject) => {
-              this.process.stdin.write(JSON.stringify({ id: m.id, result: value }) + "\n",
-                error => error ? reject(error) : resolve());
-            });
-          }
           return new Promise<void>((resolve, reject) => {
-            // 用户提问等待原生 resolved 回执；管道写入成功不等于工具已接收。
-            this.questionReceipts.set(String(m.id), { resolve, reject });
+            // 原生审批与提问均等待对应请求的 resolved 回执，管道写入完成还不能确认送达。
+            this.requestReceipts.set(String(m.id), { resolve, reject });
             this.process.stdin.write(
               JSON.stringify({ id: m.id, result: value }) + "\n",
               (error) => {
                 if (error) {
-                  this.questionReceipts.delete(String(m.id));
+                  this.requestReceipts.delete(String(m.id));
                   reject(error);
                 }
               },
@@ -338,8 +331,8 @@ export class CodexRuntime implements RuntimeHandle {
       }
       if (m.method === "serverRequest/resolved") {
         const id = String(m.params.requestId);
-        this.questionReceipts.get(id)?.resolve();
-        this.questionReceipts.delete(id);
+        this.requestReceipts.get(id)?.resolve();
+        this.requestReceipts.delete(id);
       }
       this.hooks.event(m.method, m.params);
       if (m.method === "turn/started") this.turnId = m.params.turn.id;
@@ -353,9 +346,9 @@ export class CodexRuntime implements RuntimeHandle {
         this.registerAsyncQuestion(item);
       }
       if (m.method === "turn/completed") {
-        for (const receipt of this.questionReceipts.values())
+        for (const receipt of this.requestReceipts.values())
           receipt.reject(new Error("NATIVE_TURN_ENDED"));
-        this.questionReceipts.clear();
+        this.requestReceipts.clear();
         this.turnId = "";
         // 原生异步工具已返回；保留执行供稍后在原线程提交回答。
         if (m.params.turn.status === "completed" && this.asyncQuestions.size)
@@ -717,9 +710,9 @@ export class CodexRuntime implements RuntimeHandle {
       return;
     }
     // resolved 不携带取消原因，发出停止前将尚未确认的回执保守判为未知。
-    for (const receipt of this.questionReceipts.values())
+    for (const receipt of this.requestReceipts.values())
       receipt.reject(new Error("NATIVE_CANCELLED"));
-    this.questionReceipts.clear();
+    this.requestReceipts.clear();
     if (this.turnId)
       await this.call("turn/interrupt", {
         threadId: this.threadId,

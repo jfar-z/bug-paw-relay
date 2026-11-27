@@ -982,7 +982,7 @@ test("连接器持久化暂存防重、取消不启动与多原生交互保留",
         stateVersion: 2,
         interactions: [first, second].map((id) => ({
           id,
-          method: "permission",
+          method: "Write",
         })),
       },
       id,

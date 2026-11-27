@@ -588,7 +588,7 @@ test("原生停止先拒绝未确认回执，迟到 resolved 不能伪报接收�
     const runtime = Object.create(Type.prototype) as any;
     if (Type === CodexRuntime) runtime.asyncQuestions = new Set();
     let rejected = 0;
-    runtime.questionReceipts = new Map([
+    const receipts = new Map([
       [
         "request",
         {
@@ -599,11 +599,12 @@ test("原生停止先拒绝未确认回执，迟到 resolved 不能伪报接收�
         },
       ],
     ]);
+    runtime[Type === CodexRuntime ? "requestReceipts" : "questionReceipts"] = receipts;
     runtime.abort = new AbortController();
     runtime.turnId = "turn";
     runtime.call = async () => assert.equal(rejected, 1);
     await runtime.cancel();
     assert.equal(rejected, 1);
-    assert.equal(runtime.questionReceipts.size, 0);
+    assert.equal(receipts.size, 0);
   }
 });
