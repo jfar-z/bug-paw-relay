@@ -223,6 +223,8 @@ export const webMessages = {
   "light.delete": { "zh-CN": "永久删除", en: "Delete permanently" },
   "light.deleted": { "zh-CN": "已删除", en: "Deleted" },
   "light.deleteScope": { "zh-CN": "将撤销托管访问并永久清除全部 {count} 个版本的文件及反馈。环境端服务将继续运行，业务数据库和凭据将保留。此操作无法通过产品恢复。", en: "Hosted access will be revoked. Files and feedback for all {count} versions will be permanently removed. Environment services will keep running and their databases and credentials will be retained. This cannot be undone in the app." },
+  "light.relistScope": { "zh-CN": "将恢复全部 {count} 个版本的托管访问。", en: "Hosted access to all {count} versions will be restored." },
+  "light.reviewRelist": { "zh-CN": "查看恢复上架范围", en: "Review listing restoration" },
   "light.unlistScope": { "zh-CN": "将撤销全部 {count} 个版本的托管访问，保留历史和反馈。可从轻应用管理页恢复上架。", en: "Hosted access to all {count} versions will be revoked. History and feedback will be kept. Restore the listing from the Light apps page." },
   "light.confirmations": { "zh-CN": "轻应用操作确认", en: "Light app confirmations" },
   "light.reviewDelete": { "zh-CN": "查看永久删除范围", en: "Review permanent deletion" },

@@ -374,6 +374,8 @@ test("会话与工作项发布、历史反馈、下架恢复及手机查看", as
     });
     const second = await publish("交互报告", "第二版", { appId: first.appId, executionId: secondExecution });
     fixtureTime(second.versionId, 50);
+    // 历史夹具已更新，发送真实连接器重连时使用的对账事件。
+    service.sessionEvents.emit(session.id, { type: "environment-ready" });
     const timeline = page.locator(".session-messages");
     const labels = ["第一轮回复", "版本 1", "第二轮回复", "计算器", "第三轮回复", "版本 2", "第四轮回复"];
     const assertTimeline = async () => {
@@ -575,8 +577,8 @@ test("会话与工作项发布、历史反馈、下架恢复及手机查看", as
     await expect(sessionLink).toBeVisible();
     expect(deliveries).toHaveLength(2);
     expect(deliveries[1].message).toMatch(/交互报告.*1.*已确认/);
-    // 后续下架和删除场景沿用原发布执行。
-    store.db.prepare("UPDATE executions SET state='running' WHERE id=?").run(execution);
+    // 范围变化由来源会话当前轮次追加版本触发。
+    const latestExecution = store.get("sessions", session.id).executionId;
 
     async function checkLandscape(active: Page, standalone: boolean) {
       const dialog = active.getByRole("dialog").last();
@@ -777,14 +779,31 @@ test("会话与工作项发布、历史反馈、下架恢复及手机查看", as
     await page.keyboard.press("Escape");
     await expect(page.getByRole("dialog")).toHaveCount(0);
     service.peers.set(env.id, peer);
-    store.put("sessions", { permission: "full" }, session.id);
-    store.db.prepare("UPDATE executions SET snapshot=? WHERE id=?")
-      .run(JSON.stringify({ permission: "full" }), execution);
+
     await mkdir(root);
     await writeFile(join(root, "index.html"), "<h1>Updated</h1>");
     await writeFile(join(root, "image.svg"), '<svg xmlns="http://www.w3.org/2000/svg"/>');
+    // 在另一项目会话中审阅恢复和删除请求，原会话仍可追加版本。
+    store.put("environments", { capabilities: [...env.capabilities, "light-apps-environment-v1"] }, env.id);
+    const managingProject = service.save("projects", {
+      name: "管理项目", directories: [{ environmentId: env.id, rootId: "root", relativePath: "." }],
+    });
+    const initiator = store.put("sessions", {
+      title: "管理会话", runtime: "claude", projectId: managingProject.id, environmentId: env.id, rootId: "root",
+    });
+    const initiatingExecution = randomUUID();
+    store.db.prepare("INSERT INTO executions VALUES(?,NULL,?,?,'running','{}',?)")
+      .run(initiatingExecution, initiator.id, env.id, new Date().toISOString());
+    await page.goto(origin + "/#chat/" + initiator.id);
+    await setListing(false);
+    await light.agent("light.relist", env.id, peer, { executionId: initiatingExecution, args: { appId: first.appId } });
+    await page.getByRole("button", { name: "Review listing restoration" }).click();
+    const restoring = page.getByRole("dialog", { name: "Restore listing" });
+    await expect(restoring).toContainText("Hosted access to all 3 versions will be restored.");
+    await restoring.getByRole("button", { name: "Restore listing" }).click();
+    await expect(page.getByRole("status").filter({ hasText: "Listed" })).toBeVisible();
     const requestDelete = () => light.agent("light.delete", env.id, peer, {
-      executionId: execution,
+      executionId: initiatingExecution,
       args: { appId: first.appId },
     });
     const review = page.getByRole("button", { name: "Review permanent deletion" });
@@ -806,7 +825,7 @@ test("会话与工作项发布、历史反馈、下架恢复及手机查看", as
     expect(store.get("lightApps", first.appId).listed).toBe(true);
     expect(await requestDelete()).toMatchObject({ status: "pendingConfirmation" });
     await review.click();
-    await publish("交互报告", "Fourth", { appId: first.appId });
+    await publish("交互报告", "Fourth", { appId: first.appId, executionId: latestExecution });
     await confirmDeletion.click();
     await expect(deletion.getByText(/all 4 versions/)).toBeVisible();
     await expect(deletion.getByText(/The versions changed/)).toBeVisible();
@@ -814,6 +833,8 @@ test("会话与工作项发布、历史反馈、下架恢复及手机查看", as
     await page.screenshot({ path: info.outputPath("mobile-scope-changed-en.png"), animations: "disabled" });
     await confirmDeletion.click();
     await expect(deletion).toHaveCount(0);
+    await expect(page.getByRole("status").filter({ hasText: "Deleted" })).toBeVisible();
+    await page.goto(origin + "/#chat/" + session.id);
     await expect(page.getByRole("article", { name: "交互报告", exact: true }).getByText("Deleted", { exact: true })).toHaveCount(4);
     await expect(page.getByRole("button", { name: /Open 交互报告/ })).toHaveCount(0);
     expect(store.list("lightFeedback").filter((entry) => entry.versionId === first.versionId)).toHaveLength(0);
@@ -864,6 +885,7 @@ test("会话与工作项发布、历史反馈、下架恢复及手机查看", as
 /** 两个回环业务服务各自持久化，读写走已发布页面和真实连接器。 */
 test("绑定版本通过真实连接器读写，重开及恢复后保留数据", async ({ page, context }) => {
   await withHosting(page, context, async ({ store, service, light }, dir, cert) => {
+    page.setDefaultTimeout(10000);
     const root = join(dir, "site");
     await mkdir(root);
     const config = new ConnectorConfig(join(dir, "connector"));
@@ -889,10 +911,10 @@ test("绑定版本通过真实连接器读写，重开及恢复后保留数据",
     const registration = join(config.dir, "light-services", session.id);
     await mkdir(registration, { recursive: true });
     const executionId = randomUUID();
-    const makeService = async () => {
+    const makeService = async (ownerDirectory = registration, initialRecords = "[]") => {
       const id = randomUUID();
       const database = join(dir, id + ".json");
-      await writeFile(database, "[]");
+      await writeFile(database, initialRecords);
       const server = createHttpServer(async (req, res) => {
         if (req.method === "HEAD" && req.url === "/.well-known/bugpaw-light-service")
           return void res.writeHead(204, { "x-bugpaw-light-service": id }).end();
@@ -914,7 +936,8 @@ test("绑定版本通过真实连接器读写，重开及恢复后保留数据",
       };
       await start(0);
       const port = (server.address() as { port: number }).port;
-      await writeFile(join(registration, id + ".port"), String(port));
+      await mkdir(ownerDirectory, { recursive: true });
+      await writeFile(join(ownerDirectory, id + ".port"), String(port));
       return { id, database, restart: () => start(port),
         stop: () => new Promise<void>(done => server.close(() => done())) };
     };
@@ -922,6 +945,9 @@ test("绑定版本通过真实连接器读写，重开及恢复后保留数据",
     const two = await makeService();
     try {
       await connected();
+      // 用旧能力生成存量绑定，随后恢复连接器协商的完整能力。
+      const capabilities = store.get("environments", environmentId).capabilities;
+      store.put("environments", { capabilities: capabilities.filter((c: string) => c !== "light-apps-environment-v1") }, environmentId);
       store.db.prepare("INSERT INTO executions VALUES(?,NULL,?,?,'running','{}',?)")
         .run(executionId, session.id, environmentId, new Date().toISOString());
       await writeFile(join(root, "index.html"), `<!doctype html><meta charset="utf-8"><input aria-label="记录"><button>保存</button><button>读取</button><output></output><script>
@@ -947,6 +973,7 @@ test("绑定版本通过真实连接器读写，重开及恢复后保留数据",
       await publish(two.id, first.appId);
       await expect(publish(randomUUID(), first.appId)).rejects.toMatchObject({ code: "LIGHT_SERVICE" });
       await publish(undefined, first.appId);
+      store.put("environments", { capabilities }, environmentId);
       service.setState(executionId, "completed");
       const frame = page.frameLocator("iframe");
       const output = frame.locator("output");
@@ -1016,6 +1043,41 @@ test("绑定版本通过真实连接器读写，重开及恢复后保留数据",
         await page.goto(origin + "/#chat/" + session.id);
         await open(1);
         await expect(output).toHaveText('200 ["第一条","回执中断"]');
+        await page.bringToFront();
+        // 将旧版多绑定应用统一到应用级实例，在原视图与另一会话的新版验证切换。
+        const other = store.put("sessions", { title: "接续发布", runtime: "codex", environmentId, rootId: "work", relativePath: "other" });
+        const otherExecution = randomUUID();
+        store.db.prepare("INSERT INTO executions VALUES(?,NULL,?,?,'running','{}',?)")
+          .run(otherExecution, other.id, environmentId, new Date().toISOString());
+        await mkdir(join(root, "other"));
+        await writeFile(join(root, "other/index.html"), await readFile(join(root, "index.html")));
+        const args = { appId: first.appId };
+        const dispatch = (method: string, input: object) => light.agent(method, environmentId, service.peers.get(environmentId)!, {
+          executionId: otherExecution, args: input,
+        });
+        const current = await makeService(join(config.dir, "light-services", first.appId), '["当前实例"]');
+        try {
+          await expect(dispatch("light.switchBackend", { ...args, backendServiceId: randomUUID() })).rejects.toMatchObject({ code: "LIGHT_SERVICE" });
+          await close();
+          await open(1);
+          await expect(output).toHaveText('200 ["第一条","回执中断"]');
+          expect(await dispatch("light.switchBackend", { ...args, backendServiceId: current.id })).toMatchObject({
+            currentBackend: { serviceId: current.id }, replacedBackends: expect.arrayContaining([{ sessionId: session.id, serviceId: one.id, port: expect.any(Number) }]),
+          });
+          await close();
+          await open(1);
+          await expect(output).toHaveText('200 ["当前实例"]');
+          await close();
+          await one.stop();
+          await two.stop();
+          await dispatch("light.publish", { ...args, reuseBackend: true, operationId: randomUUID() });
+          await page.goto(origin + "/#chat/" + other.id);
+          await open(4);
+          await expect(output).toHaveText('200 ["当前实例"]');
+          await close();
+        } finally {
+          await current.stop();
+        }
         await admin.getByRole("button", { name: "已上架", exact: true }).click();
         await admin.getByRole("button", { name: "永久删除", exact: true }).click();
         const dialog = admin.getByRole("dialog", { name: "永久删除" });

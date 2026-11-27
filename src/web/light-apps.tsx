@@ -374,14 +374,14 @@ function VersionHistory({
 type Confirmation = {
   id: string;
   status: "pendingConfirmation";
-  action: "unlist" | "delete";
+  action: "unlist" | "relist" | "delete";
   appId: string;
   title: string;
   versionCount: number;
   latestVersionId: string;
 };
 type DecisionStatus = "deleted" | "alreadyDeleted" | "cleanupIncomplete" |
-  "cancelled" | "unlisted" | "alreadyUnlisted";
+  "cancelled" | "unlisted" | "alreadyUnlisted" | "relisted" | "alreadyListed";
 type Notice = { title: string; status: DecisionStatus };
 const decisionLabels = {
   deleted: "light.deleted",
@@ -390,6 +390,15 @@ const decisionLabels = {
   cancelled: "light.cancelled",
   unlisted: "light.unlisted",
   alreadyUnlisted: "light.unlisted",
+  relisted: "light.listed",
+  alreadyListed: "light.listed",
+} as const;
+
+/** 审阅入口、确认标题和影响范围须描述同一个操作。 */
+const confirmationLabels = {
+  delete: { review: "light.reviewDelete", action: "light.delete", scope: "light.deleteScope" },
+  relist: { review: "light.reviewRelist", action: "light.restore", scope: "light.relistScope" },
+  unlist: { review: "light.reviewUnlist", action: "light.unlist", scope: "light.unlistScope" },
 } as const;
 
 function requestDelete(appId: string): Promise<Confirmation | { status: "alreadyDeleted" }> {
@@ -422,7 +431,8 @@ function LightDecision({
   const [incomplete, setIncomplete] = useState(false);
   const [error, setError] = useState<UiFeedback>();
   const deleting = confirmation.action === "delete";
-  const label = t(deleting ? "light.delete" : "light.unlist");
+  const labels = confirmationLabels[confirmation.action];
+  const label = t(labels.action);
 
   async function updateScope() {
     const next = await reload(confirmation);
@@ -471,7 +481,7 @@ function LightDecision({
   return (
     <Dialog title={label} onClose={onClose} busy={busy}>
       <p className="wrap"><strong>{confirmation.title}</strong></p>
-      <p>{t(deleting ? "light.deleteScope" : "light.unlistScope", { count: confirmation.versionCount })}</p>
+      <p>{t(labels.scope, { count: confirmation.versionCount })}</p>
       {error && <ErrorBox error={error} />}
       {incomplete && <p role="status">{t("light.cleanupHelp")}</p>}
       {busy && <p role="status">{t("light.submitting")}</p>}
@@ -518,7 +528,7 @@ export function SessionLightConfirmations({
         <Row key={confirmation.id}>
           <strong className="wrap">{confirmation.title}</strong>
           <Button onClick={() => setSelected(confirmation)}>
-            {t(confirmation.action === "delete" ? "light.reviewDelete" : "light.reviewUnlist")}
+            {t(confirmationLabels[confirmation.action].review)}
           </Button>
         </Row>
       ))}
