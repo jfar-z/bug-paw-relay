@@ -8,7 +8,7 @@ Give Codex or Claude Code a task on your own development machine from a phone or
 
 ![Workbench with the navigation expanded, showing the current stage and handoff history of Demo Task](docs/images/workbench.png)
 
-## 1.0.1 release notes
+## 0.1.1 release notes
 
 ### Feature highlights
 

@@ -1,3 +1,4 @@
+import packageInfo from "../../package.json" with { type: "json" };
 import { pollVisible } from "./api.js";
 import {
   ConversationHeader,
@@ -729,7 +730,7 @@ function App() {
               </strong>
             </div>
             <div className="top-right">
-              <Badge>0.1.0</Badge>
+              <Badge>{packageInfo.version}</Badge>
               <span className={online ? "online" : "offline"}>
                 {online ? tr("web.connected") : tr("web.offline")}
               </span>

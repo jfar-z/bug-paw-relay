@@ -1,3 +1,4 @@
+import { productVersion } from "../shared/product-version.js";
 import { metricsCapability, trafficWindow } from "../shared/environment-metrics.js";
 import { boardCapability } from "../shared/session-boards.js";
 import { SessionBoards } from "./session-boards.js";
@@ -257,7 +258,7 @@ export async function createApp(options: AppOptions) {
   light.register(app);
   app.get("/api/health", async () => ({
     ok: true,
-    version: "0.1.0",
+    version: productVersion,
     protocolVersion,
   }));
   // 接入向导与升级提示共用经过实际文件校验的发行清单。

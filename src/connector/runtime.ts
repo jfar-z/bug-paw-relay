@@ -1,3 +1,4 @@
+import { productVersion } from "../shared/product-version.js";
 import { boardInstruction, boardTool, boardTools, type BoardTool } from "../shared/session-boards.js";
 import {
   docsQuery,
@@ -452,7 +453,7 @@ export class CodexRuntime implements RuntimeHandle {
       ),
     );
     await this.call("initialize", {
-      clientInfo: { name: "bug_paw_relay", version: "0.1.0" },
+      clientInfo: { name: "bug_paw_relay", version: productVersion },
       capabilities: { experimentalApi: true },
     });
     this.write({ method: "initialized", params: {} });
@@ -614,7 +615,7 @@ export class CodexRuntime implements RuntimeHandle {
   catalogDefaultModel: string | undefined;
   async listModels(cwd: string) {
     await this.call("initialize", {
-      clientInfo: { name: "bug_paw_relay_models", version: "0.1.0" },
+      clientInfo: { name: "bug_paw_relay_models", version: productVersion },
     });
     this.write({ method: "initialized", params: {} });
     // 只保留默认模型字段，不将原生配置正文传出环境。
@@ -662,7 +663,7 @@ export class CodexRuntime implements RuntimeHandle {
   /** 原生发现只初始化 app-server，不创建线程、不请求模型。 */
   async listSkills(cwd: string): Promise<MentionItem[]> {
     await this.call("initialize", {
-      clientInfo: { name: "bug_paw_relay_skills", version: "0.1.0" },
+      clientInfo: { name: "bug_paw_relay_skills", version: productVersion },
     });
     this.write({ method: "initialized", params: {} });
     const result = await this.call("skills/list", {
@@ -683,7 +684,7 @@ export class CodexRuntime implements RuntimeHandle {
   /** 标题查询关闭回合正文，避免周期同步读取完整历史。 */
   async readStored(nativeId: string, includeTurns = true) {
     await this.call("initialize", {
-      clientInfo: { name: "bug_paw_relay_history", version: "0.1.0" },
+      clientInfo: { name: "bug_paw_relay_history", version: productVersion },
     });
     this.write({ method: "initialized", params: {} });
     this.threadId = nativeId;
